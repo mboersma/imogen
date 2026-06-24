@@ -61,6 +61,10 @@ To run the agent on a local kind cluster, install kagent, create the Azure OpenA
 `hack/setup-openai.sh`, then run `hack/setup-kagent.sh` to build the tool server image and apply
 the manifests in `deploy/`. See [AGENTS.md](AGENTS.md) for the full steps.
 
+To stand up the CAPZ builder cluster, run `hack/setup-mgmt-cluster.sh` (AKS management cluster
+plus Cluster API) then `hack/setup-builder-cluster.sh` (the builder workload cluster). Scale the
+build pool with `hack/scale-builder.sh <count>` and tear it down with `hack/teardown-builder.sh`.
+
 ## Development
 
 The tool server is written in Go using the [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk).

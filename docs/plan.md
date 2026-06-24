@@ -37,10 +37,19 @@ Auth note: this subscription disallows API-key auth on Azure OpenAI, and this ka
 Azure client only sends the api-key header. So the agent authenticates with a short lived Entra
 ID Bearer token injected as a default header. On AKS this is replaced by workload identity.
 
-Next: builder cluster, in-cluster validation, end-to-end demo. The Azure-backed tools
-(`list-gallery-versions`, `submit-build-job`, `get-build-status`, `promote-image`) become
-callable from the in-cluster agent once it runs with Azure credentials (workload identity on
-AKS); on kind only the network-only `list-k8s-releases` is exercisable.
+- CAPZ builder cluster stood up and verified. `hack/setup-mgmt-cluster.sh` creates an AKS
+  management cluster with workload identity, a user-assigned identity CAPZ uses (federated to the
+  capz-manager and ASO service accounts, no secrets), and runs `clusterctl init`.
+  `hack/setup-builder-cluster.sh` creates a self-managed "builder" workload cluster with one VMSS
+  MachinePool, then installs Calico and the external Azure cloud provider so nodes go Ready.
+  `hack/scale-builder.sh <n>` scales the pool imperatively. Verified: the cluster came up with
+  workload-identity auth (ASO created the Azure network with federated tokens), nodes reached
+  Ready, and the pool scaled 1 to 0 to 1.
+
+Next: move the image-builder run into a Job on the builder cluster, in-cluster validation, and
+the end-to-end demo. The Azure-backed tools become callable from the in-cluster agent once it
+runs with Azure credentials (workload identity); on kind only the network-only
+`list-k8s-releases` is exercisable.
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

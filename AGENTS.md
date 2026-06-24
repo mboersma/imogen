@@ -91,7 +91,7 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
 ├── assets/              # static assets (project image + attribution)
 ├── cmd/
 │   └── imogen-toolserver/  # MCP tool server entrypoint
-├── deploy/              # kagent manifests (Agent, ModelConfig, RemoteMCPServer, tool server)
+├── deploy/              # kagent manifests + CAPZ builder cluster addons (Calico, identity)
 ├── docs/
 │   └── plan.md          # design & MVP plan
 ├── hack/                # operational scripts (Azure foundation, build, openai, kagent)
@@ -127,6 +127,26 @@ Job on the CAPZ builder cluster with Workload Identity later. The `submit-build-
 gallery to the community gallery, sourced from the staging version (both galleries live in the
 same resource group). The `promote-image` MCP tool wraps the same flow and is meant to run only
 after validation passes and approval is granted.
+
+### Builder cluster (CAPZ)
+
+The durable home for builds and validation is a Cluster API (CAPZ) setup, all authenticated with
+workload identity so there are no stored secrets.
+
+`hack/setup-mgmt-cluster.sh` creates an AKS management cluster with the OIDC issuer and workload
+identity enabled, a user-assigned identity (`imogen-capz`) with Contributor on the subscription,
+federated credentials for the `capz-manager` and `azureserviceoperator-default` service accounts,
+then runs `clusterctl init` (with `EXP_MACHINE_POOL=true`) and applies the `AzureClusterIdentity`
+from `deploy/azure-cluster-identity.yaml`.
+
+`hack/setup-builder-cluster.sh` generates a self-managed "builder" workload cluster with one VMSS
+MachinePool (`clusterctl generate cluster --flavor machinepool`), then installs Calico
+(`deploy/calico-values.yaml`) and the external Azure cloud provider so the nodes become Ready.
+`hack/scale-builder.sh <count>` scales the pool imperatively, down to 0 when idle.
+`hack/teardown-builder.sh` deletes the workload cluster, and with `--mgmt` the AKS cluster too.
+
+The image-builder run still goes through Azure Container Instances for now; moving it to a Job on
+this builder cluster is the next step.
 
 ### Running the agent (kagent)
 

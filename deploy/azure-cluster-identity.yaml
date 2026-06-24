@@ -1,0 +1,14 @@
+# Workload-identity AzureClusterIdentity used by the builder workload cluster.
+# clientID and tenantID are substituted by hack/setup-mgmt-cluster.sh.
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: AzureClusterIdentity
+metadata:
+  name: imogen-capz
+  namespace: default
+spec:
+  type: WorkloadIdentity
+  clientID: __CLIENT_ID__
+  tenantID: __TENANT_ID__
+  allowedNamespaces:
+    list:
+      - default

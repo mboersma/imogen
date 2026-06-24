@@ -53,6 +53,9 @@ To build a reference image, create the build identity once with `hack/setup-buil
 then run `hack/run-build.sh <flavor> <version>`, for example `hack/run-build.sh ubuntu-2404 v1.34.9`.
 The build runs as a container and publishes to the staging gallery.
 
+Once an image is validated, promote it to the community gallery with
+`hack/promote-image.sh <flavor> <version>`.
+
 ## Development
 
 The tool server is written in Go using the [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk).

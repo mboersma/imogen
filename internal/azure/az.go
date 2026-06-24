@@ -63,6 +63,38 @@ func ListImageVersions(ctx context.Context, resourceGroup, gallery, definition s
 	return names(versions), nil
 }
 
+// Promotion copies a gallery image version from one gallery to another, in the
+// same resource group, by pointing the new version at the source as its image.
+type Promotion struct {
+	ResourceGroup  string
+	SourceGallery  string
+	TargetGallery  string
+	Definition     string
+	Version        string
+	SubscriptionID string
+	TargetRegions  []string // optional; defaults to the source region
+}
+
+// PromoteImageVersion creates the target gallery image version from the source
+// version. It blocks until the long-running create finishes.
+func PromoteImageVersion(ctx context.Context, p Promotion) error {
+	sourceID := fmt.Sprintf(
+		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/galleries/%s/images/%s/versions/%s",
+		p.SubscriptionID, p.ResourceGroup, p.SourceGallery, p.Definition, p.Version)
+	args := []string{"sig", "image-version", "create",
+		"-g", p.ResourceGroup,
+		"--gallery-name", p.TargetGallery,
+		"--gallery-image-definition", p.Definition,
+		"--gallery-image-version", p.Version,
+		"--image-version", sourceID,
+	}
+	if len(p.TargetRegions) > 0 {
+		args = append(args, "--target-regions")
+		args = append(args, p.TargetRegions...)
+	}
+	return runJSON(ctx, nil, args...)
+}
+
 func names(in []named) []string {
 	out := make([]string, len(in))
 	for i, n := range in {

@@ -119,5 +119,12 @@ Instances, publishing to the staging gallery. This is a stopgap; the build moves
 Job on the CAPZ builder cluster with Workload Identity later. The `submit-build-job` and
 `get-build-status` MCP tools wrap the same flow.
 
+### Image promotion
+
+`hack/promote-image.sh <flavor> <version>` copies a validated image version from the staging
+gallery to the community gallery, sourced from the staging version (both galleries live in the
+same resource group). The `promote-image` MCP tool wraps the same flow and is meant to run only
+after validation passes and approval is granted.
+
 Code scaffolding (MCP ToolServer, kagent CRDs, cluster manifests) will be added here and this
 section updated as it lands.

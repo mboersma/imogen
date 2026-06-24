@@ -13,18 +13,20 @@ Done:
 - Azure foundation scripts (`hack/setup-foundation.sh`): resource group, staging +
   community galleries, per-flavor image definitions. Parameterized via `IMOGEN_*`.
   Live in the dev subscription; will be swapped for the CNCF galleries later.
+- Tools `submit-build-job` / `get-build-status` with `hack/setup-build-identity.sh` +
+  `hack/run-build.sh`: standalone image-builder container build into the staging gallery,
+  run as an Azure Container Instance. **Temporary**: moves to a Kubernetes Job on the CAPZ
+  builder cluster later. Auth uses a user-assigned managed identity with `az login
+  --identity` + `USE_AZURE_CLI_AUTH=True` (no service principal secret). The in-cluster
+  version will use Workload Identity (init-sig.sh federated-token mode). Verified
+  end-to-end: an ubuntu-2404 build published `1.34.9` to `imogen_staging`. The build pins
+  the real Kubernetes version (semver, series, deb/rpm) so the gallery version label
+  matches what is installed.
+- Tool `promote-image` with `hack/promote-image.sh`: copies a validated version from the
+  staging gallery to the community gallery, sourced from the staging version. Verified
+  end-to-end: promoted `1.34.9` into `imogen_community`.
 
-In progress:
-- Tool `submit-build-job` / `get-build-status`: standalone image-builder container build
-  into the staging gallery, run as an Azure Container Instance. **Temporary**: moves to a
-  Kubernetes Job on the CAPZ builder cluster later. Auth uses a user-assigned managed
-  identity with `az login --identity` + `USE_AZURE_CLI_AUTH=True` (no service principal
-  secret). The in-cluster version will use Workload Identity (init-sig.sh federated-token
-  mode). Verified end-to-end: an ubuntu-2404 build published `1.34.9` to `imogen_staging`.
-  The build pins the real Kubernetes version (semver, series, deb/rpm) so the gallery
-  version label matches what is installed.
-
-Next: builder cluster, validation, promotion, kagent wiring, end-to-end demo.
+Next: builder cluster, in-cluster validation, kagent wiring, end-to-end demo.
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

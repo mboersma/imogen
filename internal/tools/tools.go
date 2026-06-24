@@ -9,4 +9,5 @@ func Register(server *mcp.Server) {
 	registerListGalleryVersions(server)
 	registerSubmitBuildJob(server)
 	registerGetBuildStatus(server)
+	registerPromoteImage(server)
 }

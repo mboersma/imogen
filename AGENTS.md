@@ -143,6 +143,8 @@ Local development uses a kind cluster (podman works with `KIND_EXPERIMENTAL_PROV
 
 `deploy/` holds the kagent `Agent`, the Azure OpenAI `ModelConfig`, the `RemoteMCPServer`
 pointing at the tool server, and the tool server `Deployment` and `Service`.
+`hack/teardown-kagent.sh` removes these resources; pass `--cluster` to also delete the kind
+cluster.
 
 Auth note: this subscription disallows API-key auth on Azure OpenAI, and this kagent version's
 Azure client only sends the api-key header. So the `ModelConfig` carries a short lived Entra ID

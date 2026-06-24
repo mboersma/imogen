@@ -2,6 +2,30 @@
 
 Tracking issue: `azure-management-and-platforms/cloud-native-oss#32`
 
+## Status
+
+Repo: https://github.com/mboersma/imogen (Go, Apache 2.0).
+
+Done:
+- Go MCP tool server scaffolding (`cmd/imogen-toolserver`, `internal/tools`).
+- Tool `list-k8s-releases` (upstream Kubernetes releases).
+- Tool `list-gallery-versions` (Azure compute gallery contents).
+- Azure foundation scripts (`hack/setup-foundation.sh`): resource group, staging +
+  community galleries, per-flavor image definitions. Parameterized via `IMOGEN_*`.
+  Live in the dev subscription; will be swapped for the CNCF galleries later.
+
+In progress:
+- Tool `submit-build-job` / `get-build-status`: standalone image-builder container build
+  into the staging gallery, run as an Azure Container Instance. **Temporary**: moves to a
+  Kubernetes Job on the CAPZ builder cluster later. Auth uses a user-assigned managed
+  identity with `az login --identity` + `USE_AZURE_CLI_AUTH=True` (no service principal
+  secret). The in-cluster version will use Workload Identity (init-sig.sh federated-token
+  mode). Verified end-to-end: an ubuntu-2404 build published `1.34.9` to `imogen_staging`.
+  The build pins the real Kubernetes version (semver, series, deb/rpm) so the gallery
+  version label matches what is installed.
+
+Next: builder cluster, validation, promotion, kagent wiring, end-to-end demo.
+
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.
    - Detect new Kubernetes releases not yet in the Community Gallery.

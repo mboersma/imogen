@@ -36,6 +36,7 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 | `list-k8s-releases`         | Enumerate upstream Kubernetes releases in scope |
 | `list-gallery-versions`     | List image versions already in the community gallery |
 | `submit-build-job`          | Run image-builder (`build-azure-sig-<os>-<ver>`) → staging gallery |
+| `get-build-status`          | Report a build container's state (Running/Succeeded/Failed) |
 | `scale-builder-pool`        | Scale the CAPZ builder MachinePool 0↔N |
 | `attach-validation-nodepool`| Boot a node from a staging image (`image.computeGallery`) |
 | `run-smoke-tests`           | Assert node Ready + version + smoke checks |
@@ -91,7 +92,7 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
 │   └── imogen-toolserver/  # MCP tool server entrypoint
 ├── docs/
 │   └── plan.md          # design & MVP plan
-├── hack/                # operational scripts (Azure foundation setup/teardown)
+├── hack/                # operational scripts (Azure foundation + build runner)
 └── internal/
     ├── azure/           # az CLI wrappers
     ├── k8s/             # upstream Kubernetes release lookups
@@ -108,6 +109,15 @@ Code is Go. The MCP tool server lives in `cmd/imogen-toolserver`; tools are adde
 per-flavor image definitions. Everything is parameterized via `IMOGEN_*` env vars (see
 `hack/foundation.env.example`) so the dev galleries in a personal subscription can be swapped for
 the production galleries in the CNCF subscription. `hack/teardown-foundation.sh` removes them.
+
+### Image build (temporary)
+
+`hack/setup-build-identity.sh` creates the user-assigned managed identity the build authenticates
+with, granting it Contributor on the subscription so Packer can create the temporary build VM.
+`hack/run-build.sh <flavor> <version>` runs the image-builder container on Azure Container
+Instances, publishing to the staging gallery. This is a stopgap; the build moves to a Kubernetes
+Job on the CAPZ builder cluster with Workload Identity later. The `submit-build-job` and
+`get-build-status` MCP tools wrap the same flow.
 
 Code scaffolding (MCP ToolServer, kagent CRDs, cluster manifests) will be added here and this
 section updated as it lands.

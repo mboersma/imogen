@@ -28,7 +28,7 @@ A system to build, publish, and curate Kubernetes node "reference images" in Azu
 - `internal/tools` — MCP tool implementations
 - `internal/azure` — az CLI wrappers
 - `internal/k8s` — upstream Kubernetes release lookups
-- `hack/` — operational scripts (Azure foundation setup/teardown)
+- `hack/` — operational scripts (Azure foundation setup, image build runner)
 - `docs/plan.md` — design and MVP plan
 
 ## Getting started
@@ -48,6 +48,10 @@ make run
 
 To create the Azure galleries the pipeline publishes into, configure `IMOGEN_*` env vars
 (see `hack/foundation.env.example`) and run `hack/setup-foundation.sh`.
+
+To build a reference image, create the build identity once with `hack/setup-build-identity.sh`,
+then run `hack/run-build.sh <flavor> <version>`, for example `hack/run-build.sh ubuntu-2404 v1.34.9`.
+The build runs as a container and publishes to the staging gallery.
 
 ## Development
 

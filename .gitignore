@@ -9,6 +9,7 @@ Thumbs.db
 # Secrets and local config
 .env
 .env.*
+hack/foundation.env
 *.pem
 *.key
 kubeconfig

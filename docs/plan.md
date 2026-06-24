@@ -50,11 +50,20 @@ ID Bearer token injected as a default header. On AKS this is replaced by workloa
   kubelet version matches and the runtime is containerd, runs a `hostNetwork` smoke pod, then tears
   down. The node skips drain on teardown so a broken CNI does not block deletion, and the image is
   replicated to the builder region first. Verified end-to-end: `ubuntu-2404` `1.34.9` booted, ran
-  kubelet v1.34.9, and scheduled a pod.
+  kubelet v1.34.9, and scheduled a pod. The `validate-image` MCP tool wraps this script.
+- End-to-end agent demo. The kagent agent drove the fast path live: it read the staging and
+  community galleries, validated the `ubuntu-2404` `1.34.9` staging image on the builder cluster,
+  asked for approval, and on approval promoted it to the community gallery. Tools added or improved
+  for this: `validate-image`, and `list-gallery-versions` now takes `stage` (staging or community)
+  and `flavor` so the agent does not need to know gallery names or the `capi-` definition prefix.
 
-Next: move the image-builder run into a Job on the builder cluster, and the end-to-end demo. The
-Azure-backed tools become callable from the in-cluster agent once it runs with Azure credentials
-(workload identity); on kind only the network-only `list-k8s-releases` is exercisable.
+Local demo wiring: the in-cluster tool server image has no `az` or `kubectl`, so the full pipeline
+is driven with the tool server running on the host (`hack/run-toolserver-host.sh`) and the
+`RemoteMCPServer` pointed at `host.containers.internal`. The agent in kind reaches it there. This
+is the local path only; the durable home is the tool server in AKS with workload identity.
+
+Next: move the image-builder run into a Job on the builder cluster, and deploy the agent and tool
+server into AKS with workload identity so the Azure-backed tools run in cluster with no secrets.
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

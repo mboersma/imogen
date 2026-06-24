@@ -94,7 +94,7 @@ func registerSubmitBuildJob(server *mcp.Server) {
 			Flavor:          in.Flavor,
 			Version:         semver,
 			Gallery:         gallery,
-			ImageDefinition: "capi-" + in.Flavor,
+			ImageDefinition: definitionFor(in.Flavor),
 			ImageVersion:    sigVersion,
 		}, nil
 	})

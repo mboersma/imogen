@@ -4,15 +4,17 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/mboersma/imogen/internal/azure"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
 type listGalleryVersionsInput struct {
-	ResourceGroup   string `json:"resourceGroup,omitempty" jsonschema:"Azure resource group (defaults to IMOGEN_RESOURCE_GROUP)"`
-	Gallery         string `json:"gallery,omitempty" jsonschema:"compute gallery name (defaults to IMOGEN_COMMUNITY_GALLERY)"`
-	ImageDefinition string `json:"imageDefinition,omitempty" jsonschema:"limit to one image definition; empty lists all"`
+	Stage         string `json:"stage,omitempty" jsonschema:"which gallery to look in by role: staging or community (defaults to community)"`
+	Flavor        string `json:"flavor,omitempty" jsonschema:"limit to one image-builder flavor, such as ubuntu-2404; empty lists all"`
+	ResourceGroup string `json:"resourceGroup,omitempty" jsonschema:"Azure resource group (defaults to IMOGEN_RESOURCE_GROUP)"`
+	Gallery       string `json:"gallery,omitempty" jsonschema:"explicit compute gallery name; overrides stage"`
 }
 
 type galleryImage struct {
@@ -32,13 +34,15 @@ func registerListGalleryVersions(server *mcp.Server) {
 		Description: "List the image versions present in an Azure compute gallery, by image definition.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listGalleryVersionsInput) (*mcp.CallToolResult, listGalleryVersionsOutput, error) {
 		rg := envOr(in.ResourceGroup, "IMOGEN_RESOURCE_GROUP")
-		gallery := envOr(in.Gallery, "IMOGEN_COMMUNITY_GALLERY")
+		gallery := galleryFor(in.Gallery, in.Stage)
 		if rg == "" || gallery == "" {
 			return nil, listGalleryVersionsOutput{}, fmt.Errorf("resourceGroup and gallery are required (set them directly or via IMOGEN_RESOURCE_GROUP / IMOGEN_COMMUNITY_GALLERY)")
 		}
 
-		definitions := []string{in.ImageDefinition}
-		if in.ImageDefinition == "" {
+		var definitions []string
+		if in.Flavor != "" {
+			definitions = []string{definitionFor(in.Flavor)}
+		} else {
 			var err error
 			definitions, err = azure.ListImageDefinitions(ctx, rg, gallery)
 			if err != nil {
@@ -67,4 +71,25 @@ func envOr(val, key string) string {
 		return val
 	}
 	return os.Getenv(key)
+}
+
+// galleryFor resolves a gallery name. An explicit name wins; otherwise stage
+// selects the staging or community gallery by role, defaulting to community.
+func galleryFor(explicit, stage string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if strings.EqualFold(stage, "staging") {
+		return os.Getenv("IMOGEN_STAGING_GALLERY")
+	}
+	return os.Getenv("IMOGEN_COMMUNITY_GALLERY")
+}
+
+// definitionFor maps an image-builder flavor to its gallery image definition.
+// Definitions are named capi-<flavor>; callers may pass either form.
+func definitionFor(flavor string) string {
+	if strings.HasPrefix(flavor, "capi-") {
+		return flavor
+	}
+	return "capi-" + flavor
 }

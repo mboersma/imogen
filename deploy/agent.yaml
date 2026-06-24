@@ -20,11 +20,19 @@ spec:
 
       Tools available to you:
       - list-k8s-releases: the upstream Kubernetes releases in scope.
-      - list-gallery-versions: image versions already in a gallery.
+      - list-gallery-versions: image versions already in a gallery. Pass
+        stage=staging or stage=community to pick which gallery by role.
       - submit-build-job: build one flavor and version into the staging gallery.
       - get-build-status: check a build's state.
+      - validate-image: boot a node from a staging image on the builder cluster
+        and check it runs the expected kubelet and can schedule a pod.
       - promote-image: copy a validated version from staging to the community
         gallery.
+
+      Images start in the staging gallery when built, get validated there, and
+      are promoted to the community gallery. The pipeline is build, then
+      validate, then promote. Always validate a staging image before promoting
+      it, and ask for approval before promoting.
 
       Be concise. When you take an action, say what you did and what you found.
       Ask before doing anything destructive.
@@ -39,4 +47,5 @@ spec:
             - list-gallery-versions
             - submit-build-job
             - get-build-status
+            - validate-image
             - promote-image

@@ -39,9 +39,18 @@ func main() {
 		return
 	}
 
+	// DNS rebinding protection rejects non-localhost Host headers that arrive
+	// over a localhost address. That blocks the local-dev path where the agent
+	// in kind reaches this server on the host through host.containers.internal,
+	// so allow opting out. In cluster requests do not arrive over localhost, so
+	// the default protection stays on.
+	var opts *mcp.StreamableHTTPOptions
+	if os.Getenv("IMOGEN_TOOLSERVER_ALLOW_REMOTE_HOST") == "1" {
+		opts = &mcp.StreamableHTTPOptions{DisableLocalhostProtection: true}
+	}
 	handler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server {
 		return server
-	}, nil)
+	}, opts)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)

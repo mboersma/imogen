@@ -181,6 +181,23 @@ cluster.
 Auth note: this subscription disallows API-key auth on Azure OpenAI, and this kagent version's
 Azure client only sends the api-key header. So the `ModelConfig` carries a short lived Entra ID
 Bearer token as a default header, injected by `hack/setup-kagent.sh` and refreshed by rerunning
-it. On AKS this is replaced by workload identity. On kind only the network-only
-`list-k8s-releases` tool is exercisable; the Azure-backed tools need in-cluster Azure
-credentials.
+it. On AKS this is replaced by workload identity.
+
+The in-cluster tool server image is distroless and has no `az` or `kubectl`, so on kind only the
+network-only `list-k8s-releases` tool works there. To exercise the full pipeline from the agent
+locally, run the tool server on the host instead, where it has your `az` login and the management
+cluster kubeconfig:
+
+1. `kubectl -n kagent patch remotemcpserver imogen-toolserver --type merge -p '{"spec":{"url":"http://host.containers.internal:8080/"}}'`
+2. `hack/run-toolserver-host.sh` (builds and serves the tool server on the host)
+3. Restart the agent so it rediscovers the tools: `kubectl -n kagent rollout restart deploy/imogen`
+
+The agent in kind reaches the host through `host.containers.internal`. The tool server sets
+`IMOGEN_TOOLSERVER_ALLOW_REMOTE_HOST=1` so its DNS-rebinding protection allows that Host header.
+This host path is for the local demo; the durable home is the tool server in the AKS cluster with
+workload identity.
+
+The pipeline runs build, then validate, then promote. The agent validates a staging image before
+promoting and asks for approval before it promotes. For a hard gate, kagent supports
+`requireApproval` on the agent's MCP tool list to pause for human confirmation on named tools such
+as `promote-image`.

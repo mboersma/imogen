@@ -45,7 +45,7 @@ func registerPromoteImage(server *mcp.Server) {
 		}
 
 		version := strings.TrimPrefix(in.Version, "v")
-		definition := "capi-" + in.Flavor
+		definition := definitionFor(in.Flavor)
 
 		subscriptionID, err := azure.SubscriptionID(ctx)
 		if err != nil {

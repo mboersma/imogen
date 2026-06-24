@@ -91,7 +91,9 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
 │   └── imogen-toolserver/  # MCP tool server entrypoint
 ├── docs/
 │   └── plan.md          # design & MVP plan
+├── hack/                # operational scripts (Azure foundation setup/teardown)
 └── internal/
+    ├── azure/           # az CLI wrappers
     ├── k8s/             # upstream Kubernetes release lookups
     └── tools/           # MCP tool implementations
 ```
@@ -99,6 +101,13 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
 Code is Go. The MCP tool server lives in `cmd/imogen-toolserver`; tools are added in
 `internal/tools`. Build and test with `make build` and `make test`; run the server locally with
 `make run`.
+
+### Azure foundation
+
+`hack/setup-foundation.sh` creates the resource group, staging and community galleries, and the
+per-flavor image definitions. Everything is parameterized via `IMOGEN_*` env vars (see
+`hack/foundation.env.example`) so the dev galleries in a personal subscription can be swapped for
+the production galleries in the CNCF subscription. `hack/teardown-foundation.sh` removes them.
 
 Code scaffolding (MCP ToolServer, kagent CRDs, cluster manifests) will be added here and this
 section updated as it lands.

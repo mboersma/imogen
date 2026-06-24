@@ -8,7 +8,7 @@ import (
 )
 
 type listK8sReleasesInput struct {
-	MinorCount int `json:"minorCount" jsonschema:"how many recent minor versions to return (default 3)"`
+	MinorCount int `json:"minorCount,omitempty" jsonschema:"how many recent minor versions to return (default 3)"`
 }
 
 type listK8sReleasesOutput struct {

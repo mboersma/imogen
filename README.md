@@ -26,7 +26,9 @@ A system to build, publish, and curate Kubernetes node "reference images" in Azu
 
 - `cmd/imogen-toolserver` — the MCP tool server the agent calls
 - `internal/tools` — MCP tool implementations
+- `internal/azure` — az CLI wrappers
 - `internal/k8s` — upstream Kubernetes release lookups
+- `hack/` — operational scripts (Azure foundation setup/teardown)
 - `docs/plan.md` — design and MVP plan
 
 ## Getting started
@@ -43,6 +45,9 @@ Run the tool server locally over stdio:
 ```sh
 make run
 ```
+
+To create the Azure galleries the pipeline publishes into, configure `IMOGEN_*` env vars
+(see `hack/foundation.env.example`) and run `hack/setup-foundation.sh`.
 
 ## Development
 

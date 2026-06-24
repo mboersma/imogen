@@ -65,6 +65,10 @@ To stand up the CAPZ builder cluster, run `hack/setup-mgmt-cluster.sh` (AKS mana
 plus Cluster API) then `hack/setup-builder-cluster.sh` (the builder workload cluster). Scale the
 build pool with `hack/scale-builder.sh <count>` and tear it down with `hack/teardown-builder.sh`.
 
+To validate a staging image, run `hack/validate-image.sh <flavor> <version>`, for example
+`hack/validate-image.sh ubuntu-2404 1.34.9`. It boots a node from the image on the builder
+cluster, checks the kubelet version and runtime, runs a smoke pod, then tears it down.
+
 ## Development
 
 The tool server is written in Go using the [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk).

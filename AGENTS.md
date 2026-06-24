@@ -128,6 +128,18 @@ gallery to the community gallery, sourced from the staging version (both galleri
 same resource group). The `promote-image` MCP tool wraps the same flow and is meant to run only
 after validation passes and approval is granted.
 
+### Image validation
+
+`hack/validate-image.sh <flavor> <version>` boots one node from a staging gallery image on the
+builder cluster and checks it. It attaches a one-node MachineDeployment whose
+`image.computeGallery` points at the staging version (`deploy/validation-machinedeployment.yaml`),
+waits for the node to be Ready, asserts the kubelet version matches and the runtime is containerd,
+then runs a `hostNetwork` smoke pod. The pod uses host networking so it does not wait on Calico
+initializing on the fresh node. The validation node is annotated to skip drain on teardown so a
+node without working CNI does not block deletion. Everything is torn down on exit unless
+`IMOGEN_VALIDATE_KEEP=1` is set. The script replicates the staging image to the builder region
+(`IMOGEN_BUILDER_LOCATION`) first if needed, since builds publish only to the gallery home region.
+
 ### Builder cluster (CAPZ)
 
 The durable home for builds and validation is a Cluster API (CAPZ) setup, all authenticated with

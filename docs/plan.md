@@ -45,11 +45,16 @@ ID Bearer token injected as a default header. On AKS this is replaced by workloa
   `hack/scale-builder.sh <n>` scales the pool imperatively. Verified: the cluster came up with
   workload-identity auth (ASO created the Azure network with federated tokens), nodes reached
   Ready, and the pool scaled 1 to 0 to 1.
+- Image validation with `hack/validate-image.sh`. It boots one node from a staging gallery image
+  on the builder cluster (`deploy/validation-machinedeployment.yaml`), waits for Ready, asserts the
+  kubelet version matches and the runtime is containerd, runs a `hostNetwork` smoke pod, then tears
+  down. The node skips drain on teardown so a broken CNI does not block deletion, and the image is
+  replicated to the builder region first. Verified end-to-end: `ubuntu-2404` `1.34.9` booted, ran
+  kubelet v1.34.9, and scheduled a pod.
 
-Next: move the image-builder run into a Job on the builder cluster, in-cluster validation, and
-the end-to-end demo. The Azure-backed tools become callable from the in-cluster agent once it
-runs with Azure credentials (workload identity); on kind only the network-only
-`list-k8s-releases` is exercisable.
+Next: move the image-builder run into a Job on the builder cluster, and the end-to-end demo. The
+Azure-backed tools become callable from the in-cluster agent once it runs with Azure credentials
+(workload identity); on kind only the network-only `list-k8s-releases` is exercisable.
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

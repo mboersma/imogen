@@ -1,0 +1,75 @@
+# Validation MachineDeployment: boots one node from a staging gallery image so we
+# can assert it joins, runs the expected kubelet, and schedules a pod. Applied
+# (with substitutions) and torn down by hack/validate-image.sh. CAPZ creates the
+# matching __NAME__-azure-json secret automatically.
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: __NAME__
+  namespace: default
+spec:
+  clusterName: __CLUSTER__
+  replicas: 1
+  selector:
+    matchLabels: null
+  template:
+    metadata:
+      annotations:
+        # Skip node drain on teardown. The validation node often has no working
+        # CNI yet, so draining would hang.
+        machine.cluster.x-k8s.io/exclude-node-draining: "true"
+    spec:
+      clusterName: __CLUSTER__
+      version: __K8S_VERSION__
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: __NAME__
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: AzureMachineTemplate
+        name: __NAME__
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: AzureMachineTemplate
+metadata:
+  name: __NAME__
+  namespace: default
+spec:
+  template:
+    spec:
+      vmSize: __VM_SIZE__
+      sshPublicKey: ""
+      osDisk:
+        diskSizeGB: 128
+        osType: Linux
+      image:
+        computeGallery:
+          subscriptionID: __SUBSCRIPTION_ID__
+          resourceGroup: __RESOURCE_GROUP__
+          gallery: __GALLERY__
+          name: __IMAGE_DEFINITION__
+          version: __IMAGE_VERSION__
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: __NAME__
+  namespace: default
+spec:
+  template:
+    spec:
+      files:
+      - contentFrom:
+          secret:
+            key: worker-node-azure.json
+            name: __NAME__-azure-json
+        owner: root:root
+        path: /etc/kubernetes/azure.json
+        permissions: "0644"
+      joinConfiguration:
+        nodeRegistration:
+          kubeletExtraArgs:
+            cloud-provider: external
+          name: '{{ ds.meta_data["local_hostname"] }}'

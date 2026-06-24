@@ -79,7 +79,12 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
 ```
 .
 ├── AGENTS.md            # this guide
+├── CODE_OF_CONDUCT.md   # Microsoft Open Source Code of Conduct
+├── CONTRIBUTING.md      # how to contribute (CLA)
+├── LICENSE              # Apache 2.0
+├── NOTICE               # attribution notice
 ├── README.md            # project overview
+├── SECURITY.md          # how to report security issues
 ├── assets/              # static assets (project image + attribution)
 └── docs/
     └── plan.md          # design & MVP plan

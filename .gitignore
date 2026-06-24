@@ -1,0 +1,41 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*~
+
+# Secrets and local config
+.env
+.env.*
+*.pem
+*.key
+kubeconfig
+*.kubeconfig
+.azure/
+
+# Go
+bin/
+/dist/
+*.exe
+*.test
+*.out
+vendor/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node
+node_modules/
+
+# Build / tooling
+*.log
+tmp/

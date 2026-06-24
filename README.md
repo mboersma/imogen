@@ -28,7 +28,8 @@ A system to build, publish, and curate Kubernetes node "reference images" in Azu
 - `internal/tools` — MCP tool implementations
 - `internal/azure` — az CLI wrappers
 - `internal/k8s` — upstream Kubernetes release lookups
-- `hack/` — operational scripts (Azure foundation setup, image build runner)
+- `deploy/` — kagent manifests (Agent, ModelConfig, RemoteMCPServer, tool server)
+- `hack/` — operational scripts (Azure foundation, image build, Azure OpenAI, kagent)
 - `docs/plan.md` — design and MVP plan
 
 ## Getting started
@@ -55,6 +56,10 @@ The build runs as a container and publishes to the staging gallery.
 
 Once an image is validated, promote it to the community gallery with
 `hack/promote-image.sh <flavor> <version>`.
+
+To run the agent on a local kind cluster, install kagent, create the Azure OpenAI resource with
+`hack/setup-openai.sh`, then run `hack/setup-kagent.sh` to build the tool server image and apply
+the manifests in `deploy/`. See [AGENTS.md](AGENTS.md) for the full steps.
 
 ## Development
 

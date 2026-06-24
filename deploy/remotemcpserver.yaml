@@ -1,0 +1,12 @@
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: imogen-toolserver
+  namespace: kagent
+spec:
+  description: imogen image pipeline tools
+  protocol: STREAMABLE_HTTP
+  url: http://imogen-toolserver.kagent.svc.cluster.local:8080/
+  timeout: 30s
+  sseReadTimeout: 5m0s
+  terminateOnClose: true

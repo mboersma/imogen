@@ -82,6 +82,7 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
 ├── AGENTS.md            # this guide
 ├── CODE_OF_CONDUCT.md   # Microsoft Open Source Code of Conduct
 ├── CONTRIBUTING.md      # how to contribute (CLA)
+├── Dockerfile           # builds the tool server image
 ├── LICENSE              # Apache 2.0
 ├── Makefile             # build, test, run targets
 ├── NOTICE               # attribution notice
@@ -90,9 +91,10 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
 ├── assets/              # static assets (project image + attribution)
 ├── cmd/
 │   └── imogen-toolserver/  # MCP tool server entrypoint
+├── deploy/              # kagent manifests (Agent, ModelConfig, RemoteMCPServer, tool server)
 ├── docs/
 │   └── plan.md          # design & MVP plan
-├── hack/                # operational scripts (Azure foundation + build runner)
+├── hack/                # operational scripts (Azure foundation, build, openai, kagent)
 └── internal/
     ├── azure/           # az CLI wrappers
     ├── k8s/             # upstream Kubernetes release lookups
@@ -126,5 +128,25 @@ gallery to the community gallery, sourced from the staging version (both galleri
 same resource group). The `promote-image` MCP tool wraps the same flow and is meant to run only
 after validation passes and approval is granted.
 
-Code scaffolding (MCP ToolServer, kagent CRDs, cluster manifests) will be added here and this
-section updated as it lands.
+### Running the agent (kagent)
+
+The agent layer is kagent driving the tool server over MCP. The tool server speaks MCP over
+stdio by default, or over streamable HTTP when `IMOGEN_TOOLSERVER_ADDR` is set, which is how it
+runs in cluster.
+
+Local development uses a kind cluster (podman works with `KIND_EXPERIMENTAL_PROVIDER=podman`):
+
+1. `helm install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds` and
+   `helm install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent` into the `kagent` namespace.
+2. `hack/setup-openai.sh` creates the Azure OpenAI account and model deployment.
+3. `hack/setup-kagent.sh` builds and loads the tool server image and applies `deploy/`.
+
+`deploy/` holds the kagent `Agent`, the Azure OpenAI `ModelConfig`, the `RemoteMCPServer`
+pointing at the tool server, and the tool server `Deployment` and `Service`.
+
+Auth note: this subscription disallows API-key auth on Azure OpenAI, and this kagent version's
+Azure client only sends the api-key header. So the `ModelConfig` carries a short lived Entra ID
+Bearer token as a default header, injected by `hack/setup-kagent.sh` and refreshed by rerunning
+it. On AKS this is replaced by workload identity. On kind only the network-only
+`list-k8s-releases` tool is exercisable; the Azure-backed tools need in-cluster Azure
+credentials.

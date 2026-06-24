@@ -25,8 +25,22 @@ Done:
 - Tool `promote-image` with `hack/promote-image.sh`: copies a validated version from the
   staging gallery to the community gallery, sourced from the staging version. Verified
   end-to-end: promoted `1.34.9` into `imogen_community`.
+- kagent agent wired and verified on a local kind cluster. The tool server runs in cluster
+  over streamable HTTP (`Dockerfile`, `deploy/toolserver.yaml`), exposed to kagent through a
+  `RemoteMCPServer`. An `Agent` plus an Azure OpenAI `ModelConfig` (gpt-4.1-mini) drives the
+  imogen tools. `hack/setup-openai.sh` creates the Entra-only Azure OpenAI resource;
+  `hack/setup-kagent.sh` builds and loads the image and applies the manifests. Verified: the
+  agent answered "which Kubernetes releases are in scope?" by actually calling
+  `list-k8s-releases` over MCP.
 
-Next: builder cluster, in-cluster validation, kagent wiring, end-to-end demo.
+Auth note: this subscription disallows API-key auth on Azure OpenAI, and this kagent version's
+Azure client only sends the api-key header. So the agent authenticates with a short lived Entra
+ID Bearer token injected as a default header. On AKS this is replaced by workload identity.
+
+Next: builder cluster, in-cluster validation, end-to-end demo. The Azure-backed tools
+(`list-gallery-versions`, `submit-build-job`, `get-build-status`, `promote-image`) become
+callable from the in-cluster agent once it runs with Azure credentials (workload identity on
+AKS); on kind only the network-only `list-k8s-releases` is exercisable.
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

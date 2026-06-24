@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imogen-toolserver
+  namespace: kagent
+  labels:
+    app: imogen-toolserver
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: imogen-toolserver
+  template:
+    metadata:
+      labels:
+        app: imogen-toolserver
+    spec:
+      containers:
+        - name: toolserver
+          image: localhost/imogen-toolserver:dev
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: IMOGEN_TOOLSERVER_ADDR
+              value: ":8080"
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: imogen-toolserver
+  namespace: kagent
+  labels:
+    app: imogen-toolserver
+spec:
+  selector:
+    app: imogen-toolserver
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -82,13 +82,23 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
 ├── CODE_OF_CONDUCT.md   # Microsoft Open Source Code of Conduct
 ├── CONTRIBUTING.md      # how to contribute (CLA)
 ├── LICENSE              # Apache 2.0
+├── Makefile             # build, test, run targets
 ├── NOTICE               # attribution notice
 ├── README.md            # project overview
 ├── SECURITY.md          # how to report security issues
 ├── assets/              # static assets (project image + attribution)
-└── docs/
-    └── plan.md          # design & MVP plan
+├── cmd/
+│   └── imogen-toolserver/  # MCP tool server entrypoint
+├── docs/
+│   └── plan.md          # design & MVP plan
+└── internal/
+    ├── k8s/             # upstream Kubernetes release lookups
+    └── tools/           # MCP tool implementations
 ```
+
+Code is Go. The MCP tool server lives in `cmd/imogen-toolserver`; tools are added in
+`internal/tools`. Build and test with `make build` and `make test`; run the server locally with
+`make run`.
 
 Code scaffolding (MCP ToolServer, kagent CRDs, cluster manifests) will be added here and this
 section updated as it lands.

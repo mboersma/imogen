@@ -24,9 +24,31 @@ A system to build, publish, and curate Kubernetes node "reference images" in Azu
 
 ## Project layout
 
+- `cmd/imogen-toolserver` — the MCP tool server the agent calls
+- `internal/tools` — MCP tool implementations
+- `internal/k8s` — upstream Kubernetes release lookups
+- `docs/plan.md` — design and MVP plan
+
 ## Getting started
 
+You need Go 1.26+. Build and test:
+
+```sh
+make build
+make test
+```
+
+Run the tool server locally over stdio:
+
+```sh
+make run
+```
+
 ## Development
+
+The tool server is written in Go using the [MCP Go SDK](https://github.com/modelcontextprotocol/go-sdk).
+Each pipeline action is an MCP tool registered in `internal/tools`. See [AGENTS.md](AGENTS.md) for the
+architecture and conventions.
 
 ## Design
 

@@ -50,9 +50,9 @@ deadline=$((SECONDS + GRACE_SECONDS))
 while kubectl get cluster "$CLUSTER" >/dev/null 2>&1; do
   if [[ "$SECONDS" -ge "$deadline" ]]; then
     echo "Graceful deletion stalled (nodes likely deallocated); forcing cleanup"
-    if [[ "$(az group exists -n "$WORKLOAD_RG" 2>/dev/null)" == "true" ]]; then
+    if az group show -n "$WORKLOAD_RG" -o none 2>/dev/null; then
       echo "Deleting workload resource group $WORKLOAD_RG"
-      az group delete -n "$WORKLOAD_RG" --yes
+      az group delete -n "$WORKLOAD_RG" --yes --no-wait
     fi
     echo "Clearing finalizers on any leftover CAPI objects for $CLUSTER"
     for kind in "${CLUSTER_KINDS[@]}"; do

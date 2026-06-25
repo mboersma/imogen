@@ -99,3 +99,50 @@ doing cloud infrastructure from an agent.
   runs collide on the immutable `AzureMachineTemplate`.
 - Booting a real node for validation takes six to eight minutes, which is what drives the long-running
   tool requirement above.
+
+## Reconstructibility (recovering from Azure reaping a dev environment)
+
+Azure deallocated our testing VMs overnight (cost governance on a dev subscription). We used this as
+a real test of whether the environment rebuilds from scripts with no manual fix-ups. It mostly does
+not, and the failures are instructive for any customer running agentic infrastructure on a
+non-production subscription.
+
+- **The management cluster does not survive deallocation cleanly.** AKS reported the cluster and
+  node pool as `Running`/`Succeeded`, but both node VMs were deallocated, so every controller
+  (CAPI, CAPZ, cert-manager) sat `Pending` and the CAPI webhook had no endpoints, which made even
+  `kubectl delete cluster` fail with `no endpoints available for service "capi-webhook-service"`.
+  AKS power state is not a reliable signal that the data plane is up.
+- **The deallocated nodes could not be restarted: `SkuNotAvailable`.** `Standard_B2s` (our default
+  for both the AKS nodes and the CAPZ control plane) is capacity-restricted in `eastus2`, and the
+  subscription further restricts allowed sizes. Recovery required adding a node pool on an available
+  SKU (`Standard_B2s_v2`) and deleting the dead pool. A reaped environment is effectively destroyed,
+  not paused, if its SKU is constrained. Defaults should prefer broadly available SKUs, and the
+  setup scripts should fail fast with the allowed-size list when a size is unavailable.
+- **Tearing down a CAPZ cluster whose nodes Azure already deallocated stalls.** `kubectl delete
+  cluster --wait` hung because the `AzureMachinePool` waited on its pool Machine's node drain (node
+  unreachable) and the control-plane Machine was blocked on the KubeadmControlPlane `kcp-cleanup`
+  pre-terminate hook, which removes the etcd member and needs the now-dead control plane. We
+  unblocked by annotating `machine.cluster.x-k8s.io/exclude-node-draining=true`, removing the
+  `pre-terminate.delete.hook.machine.cluster.x-k8s.io/kcp-cleanup` annotation, and finally deleting
+  the workload cluster's Azure resource group directly so CAPZ saw the resources gone and dropped
+  its finalizers.
+  - **Idea:** teardown should tolerate unreachable nodes by default. Set a short `nodeDrainTimeout`
+    and `nodeDeletionTimeout` in the cluster templates, and have `hack/teardown-builder.sh` fall
+    back to a direct `az group delete` of the workload RG when graceful deletion does not progress.
+- **Forced teardown leaves CAPI objects behind, and a rebuild races with their deletion.** After
+  force-clearing finalizers on the obvious objects, the `KubeadmControlPlane`, `AzureMachineTemplate`
+  and `KubeadmConfig` still lingered. Re-running `setup-builder-cluster.sh` then applied a fresh
+  `KubeadmControlPlane` over the still-deleting old one, whose deletion promptly removed the new one,
+  so the control plane never initialized. We had to delete the half-built cluster, clear the orphaned
+  template, and re-run.
+  - **Idea:** a complete `teardown-builder.sh` should delete and verify every CAPI object kind for the
+    cluster (control plane, templates, bootstrap configs) and confirm the namespace is empty before
+    `setup-builder-cluster.sh` will proceed, or refuse to start when remnants exist.
+- **`setup-builder-cluster.sh` reports success before the workers join.** `kubectl wait --for=
+  condition=Ready nodes --all` returned as soon as the control-plane node registered, while the
+  MachinePool worker was still provisioning. The script should wait for the expected worker count,
+  not just `--all` against whatever has registered so far.
+- **Takeaways for the setup scripts (to harden in the production phase):** make SKUs and regions
+  configurable with available defaults and a fail-fast check; add drain/deletion timeouts to the
+  builder cluster templates; and document a one-command recover-or-rebuild path so a reaped
+  environment can be restored without ad hoc `kubectl annotate` and `az group delete` surgery.

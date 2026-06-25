@@ -62,8 +62,17 @@ is driven with the tool server running on the host (`hack/run-toolserver-host.sh
 `RemoteMCPServer` pointed at `host.containers.internal`. The agent in kind reaches it there. This
 is the local path only; the durable home is the tool server in AKS with workload identity.
 
+Reconstructibility check. After Azure deallocated the dev VMs overnight, we tore the builder cluster
+down and rebuilt it from the scripts to test repeatability. It worked but needed manual fix-ups:
+the AKS nodes could not restart (`Standard_B2s` is `SkuNotAvailable` in `eastus2`, so we moved to
+`Standard_B2s_v2`), the CAPZ teardown stalled on draining the unreachable nodes and the KCP
+pre-terminate hook, and a rebuild raced with leftover CAPI objects. The findings and hardening ideas
+are in [agentic-dev-feedback.md](agentic-dev-feedback.md).
+
 Next: move the image-builder run into a Job on the builder cluster, and deploy the agent and tool
 server into AKS with workload identity so the Azure-backed tools run in cluster with no secrets.
+Harden the setup/teardown scripts per the reconstructibility findings (available-SKU defaults with a
+fail-fast check, drain/deletion timeouts, complete teardown, and waiting for workers to join).
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

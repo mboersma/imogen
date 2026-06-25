@@ -17,6 +17,9 @@ if [[ -f "$(dirname "$0")/foundation.env" ]]; then
   source "$(dirname "$0")/foundation.env"
 fi
 
+# shellcheck source=hack/lib.sh
+source "$(dirname "$0")/lib.sh"
+
 DIR="$(cd "$(dirname "$0")/.." && pwd)"
 
 SUBSCRIPTION_ID="${IMOGEN_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}"
@@ -24,7 +27,7 @@ TENANT_ID="${IMOGEN_TENANT_ID:-$(az account show --query tenantId -o tsv)}"
 RESOURCE_GROUP="${IMOGEN_RESOURCE_GROUP:-imogen}"
 LOCATION="${IMOGEN_MGMT_LOCATION:-${IMOGEN_LOCATION:-westus3}}"
 AKS_NAME="${IMOGEN_MGMT_CLUSTER:-imogen-mgmt}"
-AKS_NODE_SIZE="${IMOGEN_MGMT_NODE_SIZE:-Standard_B2s}"
+AKS_NODE_SIZE="${IMOGEN_MGMT_NODE_SIZE:-Standard_B2s_v2}"
 AKS_NODE_COUNT="${IMOGEN_MGMT_NODE_COUNT:-2}"
 UAMI="${IMOGEN_CAPZ_IDENTITY:-imogen-capz}"
 
@@ -36,6 +39,8 @@ if ! az group show -n "$RESOURCE_GROUP" -o none 2>/dev/null; then
 fi
 
 if ! az aks show -g "$RESOURCE_GROUP" -n "$AKS_NAME" -o none 2>/dev/null; then
+  echo "Checking the requested node size is available in $LOCATION"
+  imogen_require_sku "$AKS_NODE_SIZE" "$LOCATION"
   echo "Creating AKS cluster $AKS_NAME (this takes a few minutes)"
   az aks create \
     --resource-group "$RESOURCE_GROUP" \

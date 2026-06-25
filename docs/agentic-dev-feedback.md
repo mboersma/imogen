@@ -142,7 +142,13 @@ non-production subscription.
   condition=Ready nodes --all` returned as soon as the control-plane node registered, while the
   MachinePool worker was still provisioning. The script should wait for the expected worker count,
   not just `--all` against whatever has registered so far.
-- **Takeaways for the setup scripts (to harden in the production phase):** make SKUs and regions
-  configurable with available defaults and a fail-fast check; add drain/deletion timeouts to the
-  builder cluster templates; and document a one-command recover-or-rebuild path so a reaped
-  environment can be restored without ad hoc `kubectl annotate` and `az group delete` surgery.
+- **Takeaways for the setup scripts (now hardened):** the imogen scripts were updated to address
+  most of the above. `hack/lib.sh` adds an `imogen_require_sku` fail-fast that checks a VM size is
+  offered and unrestricted before AKS or CAPZ create, printing available sizes otherwise; the
+  builder and management defaults moved to broadly available v2 sizes and stay configurable.
+  `setup-builder-cluster.sh` sets bounded node drain/detach timeouts on the live control plane and
+  MachinePool and waits for the expected worker count, not just whatever has registered.
+  `teardown-builder.sh` waits a bounded time for graceful deletion, then forces cleanup by deleting
+  the workload resource group and clearing finalizers on every CAPI object kind for the cluster, and
+  verifies nothing is left. The remaining upstream asks (CAPI tolerating unreachable nodes by
+  default, friendlier SkuNotAvailable surfacing) stand as contribution opportunities.

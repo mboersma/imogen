@@ -153,9 +153,16 @@ from `deploy/azure-cluster-identity.yaml`.
 
 `hack/setup-builder-cluster.sh` generates a self-managed "builder" workload cluster with one VMSS
 MachinePool (`clusterctl generate cluster --flavor machinepool`), then installs Calico
-(`deploy/calico-values.yaml`) and the external Azure cloud provider so the nodes become Ready.
+(`deploy/calico-values.yaml`) and the external Azure cloud provider so the nodes become Ready. VM
+sizes are configurable (`IMOGEN_BUILDER_CP_SIZE`, `IMOGEN_BUILDER_NODE_SIZE`) and default to broadly
+available v2 sizes; the script fails fast via `hack/lib.sh` `imogen_require_sku` if a size is not
+offered in the region, sets bounded node drain/detach timeouts so teardown is not blocked by
+deallocated nodes, and waits for the expected worker count.
 `hack/scale-builder.sh <count>` scales the pool imperatively, down to 0 when idle.
-`hack/teardown-builder.sh` deletes the workload cluster, and with `--mgmt` the AKS cluster too.
+`hack/teardown-builder.sh` deletes the workload cluster, and with `--mgmt` the AKS cluster too. It
+waits a bounded time for graceful deletion, then forces cleanup (deleting the workload resource group
+and clearing leftover CAPI finalizers) so a cluster whose nodes Azure already deallocated still tears
+down cleanly.
 
 The image-builder run still goes through Azure Container Instances for now; moving it to a Job on
 this builder cluster is the next step.

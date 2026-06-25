@@ -22,6 +22,9 @@ if [[ -f "$(dirname "$0")/foundation.env" ]]; then
   source "$(dirname "$0")/foundation.env"
 fi
 
+# shellcheck source=hack/lib.sh
+source "$(dirname "$0")/lib.sh"
+
 SUBSCRIPTION_ID="${IMOGEN_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}"
 TENANT_ID="${IMOGEN_TENANT_ID:-$(az account show --query tenantId -o tsv)}"
 RESOURCE_GROUP="${IMOGEN_RESOURCE_GROUP:-imogen}"
@@ -30,14 +33,24 @@ MGMT_CLUSTER="${IMOGEN_MGMT_CLUSTER:-imogen-mgmt}"
 UAMI="${IMOGEN_CAPZ_IDENTITY:-imogen-capz}"
 CLUSTER="${IMOGEN_BUILDER_CLUSTER:-imogen-builder}"
 K8S_VERSION="${IMOGEN_BUILDER_K8S_VERSION:-v1.34.8}"
-CP_SIZE="${IMOGEN_BUILDER_CP_SIZE:-Standard_B2s}"
-NODE_SIZE="${IMOGEN_BUILDER_NODE_SIZE:-Standard_D2s_v3}"
+# Default to broadly available v2 sizes. Some subscriptions and regions restrict
+# older sizes (Standard_B2s, D2s_v3); imogen_require_sku below fails fast with the
+# available sizes if these are not offered. Override via IMOGEN_BUILDER_*_SIZE.
+CP_SIZE="${IMOGEN_BUILDER_CP_SIZE:-Standard_B2s_v2}"
+NODE_SIZE="${IMOGEN_BUILDER_NODE_SIZE:-Standard_B2s_v2}"
 WORKERS="${IMOGEN_BUILDER_WORKERS:-1}"
 CALICO_VERSION="${IMOGEN_CALICO_VERSION:-v3.29.7}"
+# How long the Machine controller spends draining/deleting a node before giving
+# up, so teardown is not blocked by nodes Azure has already deallocated.
+DRAIN_TIMEOUT_SECONDS="${IMOGEN_BUILDER_DRAIN_TIMEOUT_SECONDS:-120}"
 
 CLIENT_ID="${IMOGEN_CAPZ_CLIENT_ID:-$(az identity show -g "$RESOURCE_GROUP" -n "$UAMI" --query clientId -o tsv)}"
 
 kubectl config use-context "$MGMT_CLUSTER"
+
+echo "Checking the requested VM sizes are available in $LOCATION"
+imogen_require_sku "$CP_SIZE" "$LOCATION"
+imogen_require_sku "$NODE_SIZE" "$LOCATION"
 
 echo "Generating and applying the $CLUSTER workload cluster"
 if kubectl get cluster "$CLUSTER" >/dev/null 2>&1; then
@@ -59,6 +72,15 @@ else
     clusterctl generate cluster "$CLUSTER" --infrastructure azure --flavor machinepool \
     | kubectl apply -f -
 fi
+
+# Bound node drain/deletion so teardown is not blocked by nodes Azure has
+# deallocated. Patched on the live objects (served v1beta2) so it works whatever
+# apiVersion the flavor template generated, and on re-runs of an existing cluster.
+echo "Setting node drain/deletion timeouts (${DRAIN_TIMEOUT_SECONDS}s)"
+kubectl patch "kubeadmcontrolplane/${CLUSTER}-control-plane" --type merge -p \
+  "{\"spec\":{\"machineTemplate\":{\"spec\":{\"deletion\":{\"nodeDrainTimeoutSeconds\":${DRAIN_TIMEOUT_SECONDS},\"nodeVolumeDetachTimeoutSeconds\":${DRAIN_TIMEOUT_SECONDS}}}}}}"
+kubectl patch "machinepool/${CLUSTER}-mp-0" --type merge -p \
+  "{\"spec\":{\"template\":{\"spec\":{\"deletion\":{\"nodeDrainTimeoutSeconds\":${DRAIN_TIMEOUT_SECONDS},\"nodeVolumeDetachTimeoutSeconds\":${DRAIN_TIMEOUT_SECONDS}}}}}}"
 
 echo "Waiting for the control plane to initialize (a few minutes)"
 if ! kubectl wait --for=condition=Initialized "kubeadmcontrolplane/${CLUSTER}-control-plane" --timeout=900s; then
@@ -84,9 +106,24 @@ helm --kubeconfig "$WL_KUBECONFIG" upgrade --install cloud-provider-azure \
   --set infra.clusterName="$CLUSTER" \
   --set "cloudControllerManager.clusterCIDR=192.168.0.0/16"
 
-echo "Waiting for nodes to become Ready"
-kubectl --kubeconfig "$WL_KUBECONFIG" wait --for=condition=Ready nodes --all --timeout=600s || \
-  kubectl --kubeconfig "$WL_KUBECONFIG" get nodes
+echo "Waiting for nodes to become Ready (control plane + $WORKERS worker(s))"
+EXPECTED_NODES=$((1 + WORKERS))
+deadline=$((SECONDS + 600))
+while true; do
+  ready="$(kubectl --kubeconfig "$WL_KUBECONFIG" get nodes \
+    -o jsonpath='{range .items[*]}{range @.status.conditions[?(@.type=="Ready")]}{.status}{"\n"}{end}{end}' 2>/dev/null \
+    | grep -c '^True' || true)"
+  if [[ "$ready" -ge "$EXPECTED_NODES" ]]; then
+    echo "All $EXPECTED_NODES node(s) Ready"
+    break
+  fi
+  if [[ "$SECONDS" -ge "$deadline" ]]; then
+    echo "Only $ready/$EXPECTED_NODES node(s) Ready after timeout:" >&2
+    kubectl --kubeconfig "$WL_KUBECONFIG" get nodes >&2
+    break
+  fi
+  sleep 15
+done
 
 echo
 echo "Builder cluster $CLUSTER is up. Workload kubeconfig: $WL_KUBECONFIG"

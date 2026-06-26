@@ -31,3 +31,24 @@ _imogen_suggest_skus() {
     | jq -r '.[] | select((.restrictions | length) == 0) | .name' 2>/dev/null \
     | grep -iE '^Standard_(B2|B4|D2|D4)[a-z]*s' | sort -u | head -12 | sed 's/^/  /' >&2 || true
 }
+
+# imogen_builder_kubeconfig
+#
+# Write a kubeconfig for the builder workload cluster to a new temp file and echo
+# its path. In cluster (IMOGEN_IN_CLUSTER=1) the tool server reads the CAPI
+# kubeconfig secret directly, since clusterctl is not bundled and there is no
+# named context. On a workstation it uses clusterctl against the mgmt context.
+imogen_builder_kubeconfig() {
+  local cluster="${IMOGEN_BUILDER_CLUSTER:-imogen-builder}"
+  local ns="${IMOGEN_BUILDER_KUBECONFIG_NAMESPACE:-default}"
+  local out
+  out="$(mktemp -t imogen-builder-kubeconfig-XXXX)"
+  if [[ "${IMOGEN_IN_CLUSTER:-}" == "1" ]]; then
+    kubectl get secret "${cluster}-kubeconfig" -n "$ns" \
+      -o jsonpath='{.data.value}' | base64 -d > "$out"
+  else
+    kubectl config use-context "${IMOGEN_MGMT_CLUSTER:-imogen-mgmt}" >/dev/null
+    clusterctl get kubeconfig "$cluster" > "$out"
+  fi
+  echo "$out"
+}

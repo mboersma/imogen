@@ -112,14 +112,17 @@ per-flavor image definitions. Everything is parameterized via `IMOGEN_*` env var
 `hack/foundation.env.example`) so the dev galleries in a personal subscription can be swapped for
 the production galleries in the CNCF subscription. `hack/teardown-foundation.sh` removes them.
 
-### Image build (temporary)
+### Image build
 
 `hack/setup-build-identity.sh` creates the user-assigned managed identity the build authenticates
 with, granting it Contributor on the subscription so Packer can create the temporary build VM.
-`hack/run-build.sh <flavor> <version>` runs the image-builder container on Azure Container
-Instances, publishing to the staging gallery. This is a stopgap; the build moves to a Kubernetes
-Job on the CAPZ builder cluster with Workload Identity later. The `submit-build-job` and
-`get-build-status` MCP tools wrap the same flow.
+`hack/run-build-job.sh <flavor> <version>` runs the image-builder container as a Kubernetes Job on
+the CAPZ builder cluster, publishing to the staging gallery. The Job pod authenticates with the
+build identity exposed on the builder VMSS through IMDS (no stored secret), so the build identity is
+assigned to the worker VMSS by `hack/setup-builder-cluster.sh`. The script scales the builder pool up
+to one worker if it is idle, then applies `deploy/build-job.yaml`; it returns immediately with the
+Job name. `hack/build-status.sh <job>` reports the Job state (Pending, Running, Succeeded, Failed or
+NotFound). The `submit-build-job` and `get-build-status` MCP tools wrap the same two scripts.
 
 ### Image promotion
 
@@ -157,15 +160,16 @@ MachinePool (`clusterctl generate cluster --flavor machinepool`), then installs 
 sizes are configurable (`IMOGEN_BUILDER_CP_SIZE`, `IMOGEN_BUILDER_NODE_SIZE`) and default to broadly
 available v2 sizes; the script fails fast via `hack/lib.sh` `imogen_require_sku` if a size is not
 offered in the region, sets bounded node drain/detach timeouts so teardown is not blocked by
-deallocated nodes, and waits for the expected worker count.
+deallocated nodes, and waits for the expected worker count. It also assigns the build managed
+identity to the worker VMSS so image-builder Jobs can authenticate through IMDS.
 `hack/scale-builder.sh <count>` scales the pool imperatively, down to 0 when idle.
 `hack/teardown-builder.sh` deletes the workload cluster, and with `--mgmt` the AKS cluster too. It
 waits a bounded time for graceful deletion, then forces cleanup (deleting the workload resource group
 and clearing leftover CAPI finalizers) so a cluster whose nodes Azure already deallocated still tears
 down cleanly.
 
-The image-builder run still goes through Azure Container Instances for now; moving it to a Job on
-this builder cluster is the next step.
+Image-builder runs as a Kubernetes Job on this builder cluster (`deploy/build-job.yaml`), authenticated
+with the build managed identity through IMDS.
 
 ### Running the agent (kagent)
 

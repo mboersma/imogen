@@ -14,14 +14,14 @@ Done:
   community galleries, per-flavor image definitions. Parameterized via `IMOGEN_*`.
   Live in the dev subscription; will be swapped for the CNCF galleries later.
 - Tools `submit-build-job` / `get-build-status` with `hack/setup-build-identity.sh` +
-  `hack/run-build.sh`: standalone image-builder container build into the staging gallery,
-  run as an Azure Container Instance. **Temporary**: moves to a Kubernetes Job on the CAPZ
-  builder cluster later. Auth uses a user-assigned managed identity with `az login
-  --identity` + `USE_AZURE_CLI_AUTH=True` (no service principal secret). The in-cluster
-  version will use Workload Identity (init-sig.sh federated-token mode). Verified
-  end-to-end: an ubuntu-2404 build published `1.34.9` to `imogen_staging`. The build pins
-  the real Kubernetes version (semver, series, deb/rpm) so the gallery version label
-  matches what is installed.
+  `hack/run-build-job.sh` / `hack/build-status.sh`: image-builder runs as a Kubernetes Job on the
+  CAPZ builder cluster (`deploy/build-job.yaml`), publishing to the staging gallery. The Job pod
+  authenticates with the build managed identity exposed on the builder VMSS through IMDS, then runs
+  `az login --identity` + `USE_AZURE_CLI_AUTH=True` (no service principal secret). `run-build-job.sh`
+  scales the builder pool up to one worker if idle and returns the Job name; the agent polls
+  `get-build-status`. Verified end-to-end: ubuntu-2404 builds published to `imogen_staging`. The build
+  pins the real Kubernetes version (semver, series, deb/rpm) so the gallery version label matches what
+  is installed.
 - Tool `promote-image` with `hack/promote-image.sh`: copies a validated version from the
   staging gallery to the community gallery, sourced from the staging version. Verified
   end-to-end: promoted `1.34.9` into `imogen_community`.
@@ -82,8 +82,14 @@ are in [agentic-dev-feedback.md](agentic-dev-feedback.md). The `eastus2` capacit
 moving: `Standard_B2s_v2` later became restricted too, so the mgmt system pool now runs on
 `Standard_D2as_v5`.
 
-Next: move the image-builder run into a Job on the builder cluster with workload identity, replacing
-the standalone Azure Container Instances build.
+Image-builder now runs as a Kubernetes Job on the builder cluster (`deploy/build-job.yaml`,
+`hack/run-build-job.sh`), authenticated with the build managed identity through IMDS, replacing the
+earlier standalone Azure Container Instances build. The builder MachinePool keeps hitting `eastus2`
+capacity restrictions: `Standard_B4s_v2` became restricted mid-build, so the pool moved to
+`Standard_D2as_v5`.
+
+Next: drive the full build through the in-cluster agent and tighten cleanup of the temporary Packer
+resource group on failures.
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

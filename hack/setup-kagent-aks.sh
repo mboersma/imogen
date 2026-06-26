@@ -108,6 +108,7 @@ helm upgrade --install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
   -n "$NAMESPACE" >/dev/null
 
 echo "Creating the imogen-config ConfigMap"
+BUILD_CLIENT_ID="${IMOGEN_BUILDER_CLIENT_ID:-$(az identity show -g "$RESOURCE_GROUP" -n "$BUILD_IDENTITY" --query clientId -o tsv 2>/dev/null || true)}"
 kubectl create configmap imogen-config -n "$NAMESPACE" \
   --from-literal=IMOGEN_SUBSCRIPTION_ID="$SUBSCRIPTION_ID" \
   --from-literal=IMOGEN_RESOURCE_GROUP="$RESOURCE_GROUP" \
@@ -115,8 +116,7 @@ kubectl create configmap imogen-config -n "$NAMESPACE" \
   --from-literal=IMOGEN_STAGING_GALLERY="${IMOGEN_STAGING_GALLERY:-imogen_staging}" \
   --from-literal=IMOGEN_COMMUNITY_GALLERY="${IMOGEN_COMMUNITY_GALLERY:-imogen_community}" \
   --from-literal=IMOGEN_BUILDER_IMAGE="${IMOGEN_BUILDER_IMAGE:-registry.k8s.io/scl-image-builder/cluster-node-image-builder-amd64:v0.1.52}" \
-  --from-literal=IMOGEN_BUILDER_CLIENT_ID="${IMOGEN_BUILDER_CLIENT_ID:-}" \
-  --from-literal=IMOGEN_BUILDER_IDENTITY_ID="${IMOGEN_BUILDER_IDENTITY_ID:-}" \
+  --from-literal=IMOGEN_BUILDER_CLIENT_ID="$BUILD_CLIENT_ID" \
   --from-literal=IMOGEN_BUILDER_CLUSTER="${IMOGEN_BUILDER_CLUSTER:-imogen-builder}" \
   --from-literal=IMOGEN_BUILDER_LOCATION="${IMOGEN_BUILDER_LOCATION:-$MGMT_LOCATION}" \
   --from-literal=IMOGEN_BUILDER_NODE_SIZE="${IMOGEN_BUILDER_NODE_SIZE:-Standard_B2s_v2}" \

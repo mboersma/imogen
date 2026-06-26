@@ -46,6 +46,11 @@ progress streaming while a long tool runs.
 
 - **Idea:** async tool/task semantics with progress events and graceful cancellation (deadline plus a
   termination signal the tool can trap) so a cancelled tool can still clean up.
+- **Workaround we adopted for builds:** image-builder runs take 30 to 45 minutes, far past any tool
+  timeout, so `submit-build-job` does not block. It applies a Kubernetes Job and returns the Job name
+  immediately; the agent polls `get-build-status`. Modeling a long-running action as "submit then poll"
+  sidesteps the missing async semantics, but every framework user has to reinvent it. First-class async
+  tools with status would remove that boilerplate.
 
 ### Local dev networking is trial-and-error
 Running the tool server on the host and reaching it from kagent in kind took real time to work out:
@@ -107,6 +112,12 @@ doing cloud infrastructure from an agent.
   runs collide on the immutable `AzureMachineTemplate`.
 - Booting a real node for validation takes six to eight minutes, which is what drives the long-running
   tool requirement above.
+- **`eastus2` capacity restrictions move under you, mid-operation.** `Standard_B4s_v2` passed
+  `az vm list-skus` as available, but the actual VMSS scale-up failed with `SkuNotAvailable` capacity
+  restriction minutes later, leaving the MachinePool stuck `ScalingUp`. We had to patch the
+  `AzureMachinePool` `vmSize` to `Standard_D2as_v5` to get a worker. `list-skus` is not a reliable
+  real-time capacity signal, and an agent driving builds needs to detect a wedged scale-up and fall
+  back to another SKU rather than wait forever.
 
 ## Reconstructibility (recovering from Azure reaping a dev environment)
 

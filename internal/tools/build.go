@@ -1,36 +1,37 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"os"
+	"os/exec"
 	"strings"
 
-	"github.com/mboersma/imogen/internal/azure"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
-// Temporary standalone build path. submit-build-job runs the image-builder
-// container on Azure Container Instances, publishing to the staging gallery.
-// This moves to a Kubernetes Job on the CAPZ builder cluster later.
+// submit-build-job runs image-builder as a Kubernetes Job on the CAPZ builder
+// cluster, publishing to the staging gallery. It shells out to
+// hack/run-build-job.sh, which applies the Job (the pod authenticates with the
+// build managed identity on the builder VMSS through IMDS, no stored secret).
+// get-build-status reports the Job state. This replaces the earlier standalone
+// Azure Container Instances build.
 
-const defaultBuilderImage = "registry.k8s.io/scl-image-builder/cluster-node-image-builder-amd64:v0.1.52"
+const (
+	defaultBuildScript       = "hack/run-build-job.sh"
+	defaultBuildStatusScript = "hack/build-status.sh"
+)
 
 type submitBuildJobInput struct {
-	Flavor        string `json:"flavor" jsonschema:"image-builder flavor, such as ubuntu-2404"`
-	Version       string `json:"version" jsonschema:"Kubernetes version to build, such as v1.34.9"`
-	ResourceGroup string `json:"resourceGroup,omitempty" jsonschema:"Azure resource group (defaults to IMOGEN_RESOURCE_GROUP)"`
-	Gallery       string `json:"gallery,omitempty" jsonschema:"staging gallery name (defaults to IMOGEN_STAGING_GALLERY)"`
-	Location      string `json:"location,omitempty" jsonschema:"Azure region (defaults to IMOGEN_LOCATION)"`
-	BuilderImage  string `json:"builderImage,omitempty" jsonschema:"image-builder container (defaults to IMOGEN_BUILDER_IMAGE)"`
-	ClientID      string `json:"clientId,omitempty" jsonschema:"managed identity client id (defaults to IMOGEN_BUILDER_CLIENT_ID)"`
-	IdentityID    string `json:"identityId,omitempty" jsonschema:"managed identity resource id (defaults to IMOGEN_BUILDER_IDENTITY_ID)"`
+	Flavor  string `json:"flavor" jsonschema:"image-builder flavor, such as ubuntu-2404"`
+	Version string `json:"version" jsonschema:"Kubernetes version to build, such as v1.34.9"`
 }
 
 type submitBuildJobOutput struct {
-	ContainerGroup  string `json:"containerGroup"`
+	Job             string `json:"job"`
 	Flavor          string `json:"flavor"`
 	Version         string `json:"version"`
-	Gallery         string `json:"gallery"`
 	ImageDefinition string `json:"imageDefinition"`
 	ImageVersion    string `json:"imageVersion"`
 }
@@ -38,62 +39,27 @@ type submitBuildJobOutput struct {
 func registerSubmitBuildJob(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "submit-build-job",
-		Description: "Build a CAPZ reference image for one flavor and Kubernetes version with image-builder, publishing to the staging gallery. Runs as a standalone container.",
+		Description: "Build a CAPZ reference image for one flavor and Kubernetes version with image-builder, publishing to the staging gallery. Runs as a Kubernetes Job on the builder cluster and returns immediately; poll get-build-status.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in submitBuildJobInput) (*mcp.CallToolResult, submitBuildJobOutput, error) {
 		if in.Flavor == "" || in.Version == "" {
 			return nil, submitBuildJobOutput{}, fmt.Errorf("flavor and version are required")
 		}
-		rg := envOr(in.ResourceGroup, "IMOGEN_RESOURCE_GROUP")
-		gallery := envOr(in.Gallery, "IMOGEN_STAGING_GALLERY")
-		location := envOr(in.Location, "IMOGEN_LOCATION")
-		image := envOr(in.BuilderImage, "IMOGEN_BUILDER_IMAGE")
-		if image == "" {
-			image = defaultBuilderImage
-		}
-		clientID := envOr(in.ClientID, "IMOGEN_BUILDER_CLIENT_ID")
-		identityID := envOr(in.IdentityID, "IMOGEN_BUILDER_IDENTITY_ID")
-		if rg == "" || gallery == "" || location == "" || clientID == "" || identityID == "" {
-			return nil, submitBuildJobOutput{}, fmt.Errorf("resourceGroup, gallery, location, clientId and identityId are required (set them directly or via IMOGEN_* env vars)")
-		}
-
 		sigVersion := strings.TrimPrefix(in.Version, "v")
-		series := "v" + sigVersion[:strings.LastIndex(sigVersion, ".")]
-		semver := "v" + sigVersion
-		packerFlags := strings.Join([]string{
-			"--var sig_image_version=" + sigVersion,
-			"--var kubernetes_semver=" + semver,
-			"--var kubernetes_series=" + series,
-			"--var kubernetes_deb_version=" + sigVersion + "-1.1",
-			"--var kubernetes_rpm_version=" + sigVersion,
-		}, " ")
 
-		subscriptionID, err := azure.SubscriptionID(ctx)
-		if err != nil {
-			return nil, submitBuildJobOutput{}, err
+		script := os.Getenv("IMOGEN_BUILD_SCRIPT")
+		if script == "" {
+			script = defaultBuildScript
 		}
-
-		name := fmt.Sprintf("imogen-build-%s-%s", in.Flavor, strings.ReplaceAll(sigVersion, ".", "-"))
-		err = azure.StartBuildContainer(ctx, azure.BuildContainer{
-			ResourceGroup:  rg,
-			Name:           name,
-			Image:          image,
-			Location:       location,
-			IdentityID:     identityID,
-			ClientID:       clientID,
-			SubscriptionID: subscriptionID,
-			Gallery:        gallery,
-			Target:         "build-azure-sig-" + in.Flavor,
-			PackerFlags:    packerFlags,
-		})
+		out, err := runScript(ctx, script, in.Flavor, sigVersion)
 		if err != nil {
-			return nil, submitBuildJobOutput{}, err
+			return nil, submitBuildJobOutput{}, fmt.Errorf("submit build failed: %w\n%s", err, lastLines(out, 20))
 		}
+		job := lastNonEmptyLine(out)
 
 		return nil, submitBuildJobOutput{
-			ContainerGroup:  name,
+			Job:             job,
 			Flavor:          in.Flavor,
-			Version:         semver,
-			Gallery:         gallery,
+			Version:         "v" + sigVersion,
 			ImageDefinition: definitionFor(in.Flavor),
 			ImageVersion:    sigVersion,
 		}, nil
@@ -101,31 +67,52 @@ func registerSubmitBuildJob(server *mcp.Server) {
 }
 
 type getBuildStatusInput struct {
-	ContainerGroup string `json:"containerGroup" jsonschema:"the build container group name returned by submit-build-job"`
-	ResourceGroup  string `json:"resourceGroup,omitempty" jsonschema:"Azure resource group (defaults to IMOGEN_RESOURCE_GROUP)"`
+	Job string `json:"job" jsonschema:"the build Job name returned by submit-build-job"`
 }
 
 type getBuildStatusOutput struct {
-	ContainerGroup string `json:"containerGroup"`
-	State          string `json:"state"`
+	Job   string `json:"job"`
+	State string `json:"state"`
 }
 
 func registerGetBuildStatus(server *mcp.Server) {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "get-build-status",
-		Description: "Report the state of a build container group, such as Running, Succeeded or Failed.",
+		Description: "Report the state of a build Job on the builder cluster: Pending, Running, Succeeded, Failed or NotFound.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getBuildStatusInput) (*mcp.CallToolResult, getBuildStatusOutput, error) {
-		if in.ContainerGroup == "" {
-			return nil, getBuildStatusOutput{}, fmt.Errorf("containerGroup is required")
+		if in.Job == "" {
+			return nil, getBuildStatusOutput{}, fmt.Errorf("job is required")
 		}
-		rg := envOr(in.ResourceGroup, "IMOGEN_RESOURCE_GROUP")
-		if rg == "" {
-			return nil, getBuildStatusOutput{}, fmt.Errorf("resourceGroup is required (set it directly or via IMOGEN_RESOURCE_GROUP)")
+		script := os.Getenv("IMOGEN_BUILD_STATUS_SCRIPT")
+		if script == "" {
+			script = defaultBuildStatusScript
 		}
-		state, err := azure.ContainerState(ctx, rg, in.ContainerGroup)
+		out, err := runScript(ctx, script, in.Job)
 		if err != nil {
-			return nil, getBuildStatusOutput{}, err
+			return nil, getBuildStatusOutput{}, fmt.Errorf("get build status failed: %w\n%s", err, lastLines(out, 20))
 		}
-		return nil, getBuildStatusOutput{ContainerGroup: in.ContainerGroup, State: state}, nil
+		return nil, getBuildStatusOutput{Job: in.Job, State: lastNonEmptyLine(out)}, nil
 	})
+}
+
+// runScript runs `bash <script> <args...>` and returns the combined output.
+func runScript(ctx context.Context, script string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "bash", append([]string{script}, args...)...)
+	var buf bytes.Buffer
+	cmd.Stdout = &buf
+	cmd.Stderr = &buf
+	err := cmd.Run()
+	return buf.String(), err
+}
+
+// lastNonEmptyLine returns the trailing non-empty line of s, which the build
+// scripts use to print the Job name or state.
+func lastNonEmptyLine(s string) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	for i := len(lines) - 1; i >= 0; i-- {
+		if t := strings.TrimSpace(lines[i]); t != "" {
+			return t
+		}
+	}
+	return ""
 }

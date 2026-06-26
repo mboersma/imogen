@@ -125,6 +125,20 @@ while true; do
   sleep 15
 done
 
+# Assign the build managed identity to the worker VMSS so image-builder Jobs can
+# authenticate with it through IMDS (no stored secret). Best effort: the build
+# identity comes from hack/setup-build-identity.sh. The assignment is additive,
+# so it does not disturb other identities on the VMSS.
+BUILD_IDENTITY="${IMOGEN_BUILDER_IDENTITY:-imogen-builder}"
+if BUILD_IDENTITY_ID="$(az identity show -g "$RESOURCE_GROUP" -n "$BUILD_IDENTITY" --query id -o tsv 2>/dev/null)"; then
+  echo "Assigning the build identity $BUILD_IDENTITY to the worker VMSS"
+  az vmss identity assign -g "$CLUSTER" -n "${CLUSTER}-mp-0" \
+    --identities "$BUILD_IDENTITY_ID" -o none 2>/dev/null || \
+    echo "  (could not assign; scale the pool up once, then rerun)"
+else
+  echo "Build identity $BUILD_IDENTITY not found; run hack/setup-build-identity.sh before building"
+fi
+
 echo
 echo "Builder cluster $CLUSTER is up. Workload kubeconfig: $WL_KUBECONFIG"
 echo "Scale the build pool with: hack/scale-builder.sh <count>"

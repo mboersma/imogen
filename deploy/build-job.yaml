@@ -1,0 +1,57 @@
+# Image-builder run as a Kubernetes Job on the CAPZ builder cluster.
+#
+# This replaces the standalone Azure Container Instances build. The pod runs the
+# image-builder container, which logs in with the build managed identity exposed
+# on the builder VMSS through IMDS (no stored secret), then runs the
+# build-azure-sig-<flavor> make target. Packer creates a temporary VM and
+# resource group and publishes the image version to the staging gallery.
+#
+# hack/run-build-job.sh fills in the placeholders and applies this to the builder
+# cluster.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __NAME__
+  namespace: default
+  labels:
+    app: imogen-build
+    imogen.build/flavor: __FLAVOR__
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 86400
+  template:
+    metadata:
+      labels:
+        app: imogen-build
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: image-builder
+          image: __IMAGE__
+          command:
+            - /bin/bash
+            - -c
+            - >
+              az login --identity --client-id "$AZURE_CLIENT_ID" &&
+              export USE_AZURE_CLI_AUTH=True &&
+              make __TARGET__
+          env:
+            - name: AZURE_SUBSCRIPTION_ID
+              value: "__SUBSCRIPTION_ID__"
+            - name: AZURE_LOCATION
+              value: "__LOCATION__"
+            - name: AZURE_CLIENT_ID
+              value: "__CLIENT_ID__"
+            - name: RESOURCE_GROUP_NAME
+              value: "__RESOURCE_GROUP__"
+            - name: GALLERY_NAME
+              value: "__GALLERY__"
+            - name: PACKER_FLAGS
+              value: "__PACKER_FLAGS__"
+          resources:
+            requests:
+              cpu: "500m"
+              memory: 512Mi
+            limits:
+              cpu: "2"
+              memory: 4Gi

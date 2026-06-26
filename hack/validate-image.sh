@@ -20,6 +20,8 @@ if [[ -f "$(dirname "$0")/foundation.env" ]]; then
   # shellcheck disable=SC1091
   source "$(dirname "$0")/foundation.env"
 fi
+# shellcheck source=hack/lib.sh
+source "$(dirname "$0")/lib.sh"
 
 FLAVOR="${1:-}"
 VERSION="${2:-}"
@@ -32,7 +34,6 @@ SUBSCRIPTION_ID="${IMOGEN_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}
 RESOURCE_GROUP="${IMOGEN_RESOURCE_GROUP:-imogen}"
 STAGING_GALLERY="${IMOGEN_STAGING_GALLERY:-imogen_staging}"
 GALLERY_LOCATION="${IMOGEN_LOCATION:-westus3}"
-MGMT_CLUSTER="${IMOGEN_MGMT_CLUSTER:-imogen-mgmt}"
 CLUSTER="${IMOGEN_BUILDER_CLUSTER:-imogen-builder}"
 BUILDER_LOCATION="${IMOGEN_BUILDER_LOCATION:-${IMOGEN_MGMT_LOCATION:-eastus2}}"
 NODE_SIZE="${IMOGEN_BUILDER_NODE_SIZE:-Standard_D2s_v3}"
@@ -57,17 +58,9 @@ if ! grep -qx "$WANT" <<<"$HAVE"; then
 fi
 
 # In cluster the tool server already runs against the management cluster via its
-# service account, so there is no kubeconfig context to select and clusterctl is
-# not bundled in the image. Read the builder kubeconfig from the CAPI secret
-# instead. On a workstation, keep using the named context and clusterctl.
-WL_KUBECONFIG="$(mktemp -t imogen-validate-kubeconfig-XXXX)"
-if [[ "${IMOGEN_IN_CLUSTER:-}" == "1" ]]; then
-  kubectl get secret "${CLUSTER}-kubeconfig" -n "${IMOGEN_BUILDER_KUBECONFIG_NAMESPACE:-default}" \
-    -o jsonpath='{.data.value}' | base64 -d > "$WL_KUBECONFIG"
-else
-  kubectl config use-context "$MGMT_CLUSTER" >/dev/null
-  clusterctl get kubeconfig "$CLUSTER" > "$WL_KUBECONFIG"
-fi
+# service account; on a workstation imogen_builder_kubeconfig selects the mgmt
+# context. Either way it writes a kubeconfig for the builder workload cluster.
+WL_KUBECONFIG="$(imogen_builder_kubeconfig)"
 
 cleanup() {
   if [[ "${IMOGEN_VALIDATE_KEEP:-}" == "1" ]]; then

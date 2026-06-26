@@ -51,8 +51,9 @@ To create the Azure galleries the pipeline publishes into, configure `IMOGEN_*` 
 (see `hack/foundation.env.example`) and run `hack/setup-foundation.sh`.
 
 To build a reference image, create the build identity once with `hack/setup-build-identity.sh`,
-then run `hack/run-build.sh <flavor> <version>`, for example `hack/run-build.sh ubuntu-2404 v1.34.9`.
-The build runs as a container and publishes to the staging gallery.
+then run `hack/run-build-job.sh <flavor> <version>`, for example
+`hack/run-build-job.sh ubuntu-2404 v1.34.9`. The build runs as a Kubernetes Job on the CAPZ builder
+cluster and publishes to the staging gallery; check its progress with `hack/build-status.sh <job>`.
 
 Once an image is validated, promote it to the community gallery with
 `hack/promote-image.sh <flavor> <version>`.

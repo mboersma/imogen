@@ -1,0 +1,85 @@
+# Refreshes the Azure OpenAI Entra token for the agent.
+#
+# This kagent version's Azure OpenAI client only sends the api-key header, and
+# this account is Entra-only, so the agent authenticates with a short-lived Entra
+# Bearer token passed as a default header on the ModelConfig. Rather than rerun a
+# host script every hour, this CronJob uses workload identity to mint a fresh
+# token in cluster and patch it into the ModelConfig, then restarts the agent so
+# it picks up the new token. hack/setup-kagent-aks.sh fills in the image and the
+# identity client id.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: imogen-aoai-refresher
+  namespace: kagent
+  annotations:
+    azure.workload.identity/client-id: "__CLIENT_ID__"
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: imogen-aoai-refresher
+  namespace: kagent
+rules:
+  - apiGroups: ["kagent.dev"]
+    resources: ["modelconfigs"]
+    verbs: ["get", "patch", "update"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: imogen-aoai-refresher
+  namespace: kagent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: imogen-aoai-refresher
+subjects:
+  - kind: ServiceAccount
+    name: imogen-aoai-refresher
+    namespace: kagent
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: imogen-aoai-refresher
+  namespace: kagent
+spec:
+  schedule: "*/30 * * * *"
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 120
+  successfulJobsHistoryLimit: 1
+  failedJobsHistoryLimit: 2
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app: imogen-aoai-refresher
+            azure.workload.identity/use: "true"
+        spec:
+          serviceAccountName: imogen-aoai-refresher
+          restartPolicy: OnFailure
+          containers:
+            - name: refresher
+              image: __TOOLSERVER_IMAGE__
+              command:
+                - /usr/bin/bash
+                - -ec
+                - |
+                  az login --service-principal \
+                    --username "$AZURE_CLIENT_ID" --tenant "$AZURE_TENANT_ID" \
+                    --federated-token "$(cat "$AZURE_FEDERATED_TOKEN_FILE")" \
+                    --output none
+                  token="$(az account get-access-token \
+                    --resource https://cognitiveservices.azure.com \
+                    --query accessToken -o tsv)"
+                  kubectl patch modelconfig imogen-aoai -n kagent --type merge \
+                    -p "{\"spec\":{\"defaultHeaders\":{\"Authorization\":\"Bearer ${token}\"}}}"
+                  kubectl -n kagent rollout restart deploy/imogen
+                  echo "refreshed Azure OpenAI token on the imogen ModelConfig"

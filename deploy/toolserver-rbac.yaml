@@ -1,0 +1,43 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: imogen-toolserver
+  namespace: kagent
+  annotations:
+    # Client id of the imogen-toolserver user-assigned identity, injected by
+    # hack/setup-kagent-aks.sh. Workload identity uses this to mint Azure tokens.
+    azure.workload.identity/client-id: "__CLIENT_ID__"
+---
+# The validate-image tool drives the CAPI validation objects on the management
+# cluster and reads the builder cluster's kubeconfig secret. These are the only
+# cluster permissions the tool server needs.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: imogen-toolserver
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list"]
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources: ["machinedeployments", "machines"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: ["bootstrap.cluster.x-k8s.io"]
+    resources: ["kubeadmconfigtemplates"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+  - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+    resources: ["azuremachinetemplates"]
+    verbs: ["get", "list", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: imogen-toolserver
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: imogen-toolserver
+subjects:
+  - kind: ServiceAccount
+    name: imogen-toolserver
+    namespace: kagent

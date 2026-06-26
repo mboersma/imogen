@@ -67,13 +67,17 @@ to it. We gated it behind `IMOGEN_TOOLSERVER_ALLOW_REMOTE_HOST=1`.
   allowlist that is friendlier than an all-or-nothing flag.
 
 ### Tools that shell out need a heavier base image
-Our tool server runs from `gcr.io/distroless/static-debian12`, which has no `az`, `kubectl`, or
-`clusterctl`. Tools that shell out to cloud CLIs only work when the binary runs on the host. This is
-a packaging reality rather than an SDK bug, but the SDK examples lean entirely on in-process,
+Our tool server originally ran from `gcr.io/distroless/static-debian12`, which has no `az`, `kubectl`,
+or `clusterctl`. Tools that shell out to cloud CLIs only work when the binary runs on the host. This
+is a packaging reality rather than an SDK bug, but the SDK examples lean entirely on in-process,
 network-only tools, so the "my tool needs a CLI and cloud credentials" path is unguided.
 
 - **Idea:** a documented pattern (and maybe a sample) for an MCP tool server that bundles cloud CLIs
   and authenticates with a cloud identity.
+- **Resolved here:** the image now builds on the `azure-cli` base plus `kubectl`, runs in AKS as a
+  workload identity, and an entrypoint logs `az` in with the federated token and keeps it fresh.
+  `hack/setup-kagent-aks.sh` is effectively the "bundle a cloud CLI and authenticate with an
+  identity" recipe the idea above asks for.
 
 ## Azure OpenAI / Entra
 
@@ -86,6 +90,10 @@ for a demo and untenable for an always-on agent.
 - **Idea:** OIDC/workload-identity token sourcing with automatic refresh, so the agent gets short-
   lived tokens without a manual rotation step. This likely spans kagent and how it reads
   `ModelConfig`.
+- **Worked around here:** an in-cluster CronJob (`imogen-aoai-refresher`) uses workload identity to
+  mint a token every 30 minutes, patches the `ModelConfig`, and restarts the agent. It removes the
+  manual reruns but still restarts the agent each cycle, so native token sourcing in kagent would
+  still be the real fix.
 
 ## CAPZ / Cluster API (context, mostly inherent)
 

@@ -57,22 +57,33 @@ ID Bearer token injected as a default header. On AKS this is replaced by workloa
   for this: `validate-image`, and `list-gallery-versions` now takes `stage` (staging or community)
   and `flavor` so the agent does not need to know gallery names or the `capi-` definition prefix.
 
-Local demo wiring: the in-cluster tool server image has no `az` or `kubectl`, so the full pipeline
+Local demo wiring: on kind there is no workload identity to authenticate `az`, so the full pipeline
 is driven with the tool server running on the host (`hack/run-toolserver-host.sh`) and the
 `RemoteMCPServer` pointed at `host.containers.internal`. The agent in kind reaches it there. This
 is the local path only; the durable home is the tool server in AKS with workload identity.
+
+In-cluster tool server. `hack/setup-kagent-aks.sh` deploys kagent and the tool server into the AKS
+management cluster with workload identity, so the Azure-backed tools run in cluster with no secrets
+and the host hack is gone. The image now bundles `az` and `kubectl` and is built with `az acr build`
+(cloud side, no local cross-arch build). A dedicated `imogen-toolserver` identity gets the roles it
+needs on the `imogen` resource group and is federated to the tool server service account;
+`validate-image.sh` runs in-cluster, reading the builder kubeconfig from its secret. Verified live:
+`az` authenticates as the workload identity, lists the galleries, and reads the builder kubeconfig;
+the agent discovered all six tools. Because this kagent version still only sends the api-key header,
+a `imogen-aoai-refresher` CronJob mints a fresh Entra token with workload identity every 30 minutes
+and patches it into the `ModelConfig`, replacing the manual host script reruns.
 
 Reconstructibility check. After Azure deallocated the dev VMs overnight, we tore the builder cluster
 down and rebuilt it from the scripts to test repeatability. It worked but needed manual fix-ups:
 the AKS nodes could not restart (`Standard_B2s` is `SkuNotAvailable` in `eastus2`, so we moved to
 `Standard_B2s_v2`), the CAPZ teardown stalled on draining the unreachable nodes and the KCP
 pre-terminate hook, and a rebuild raced with leftover CAPI objects. The findings and hardening ideas
-are in [agentic-dev-feedback.md](agentic-dev-feedback.md).
+are in [agentic-dev-feedback.md](agentic-dev-feedback.md). The `eastus2` capacity restrictions keep
+moving: `Standard_B2s_v2` later became restricted too, so the mgmt system pool now runs on
+`Standard_D2as_v5`.
 
-Next: move the image-builder run into a Job on the builder cluster, and deploy the agent and tool
-server into AKS with workload identity so the Azure-backed tools run in cluster with no secrets.
-Harden the setup/teardown scripts per the reconstructibility findings (available-SKU defaults with a
-fail-fast check, drain/deletion timeouts, complete teardown, and waiting for workers to join).
+Next: move the image-builder run into a Job on the builder cluster with workload identity, replacing
+the standalone Azure Container Instances build.
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

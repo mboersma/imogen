@@ -61,7 +61,9 @@ To run the agent on a local kind cluster, install kagent, create the Azure OpenA
 `hack/setup-openai.sh`, then run `hack/setup-kagent.sh` to build the tool server image and apply
 the manifests in `deploy/`. To drive the full build, validate and promote pipeline from the agent
 locally, run the tool server on the host with `hack/run-toolserver-host.sh` and point the
-`RemoteMCPServer` at it. See [AGENTS.md](AGENTS.md) for the full steps.
+`RemoteMCPServer` at it. To deploy the agent and tool server into the AKS management cluster with
+workload identity instead, so the Azure-backed tools run in cluster with no secrets, run
+`hack/setup-kagent-aks.sh`. See [AGENTS.md](AGENTS.md) for the full steps.
 
 To stand up the CAPZ builder cluster, run `hack/setup-mgmt-cluster.sh` (AKS management cluster
 plus Cluster API) then `hack/setup-builder-cluster.sh` (the builder workload cluster). Scale the

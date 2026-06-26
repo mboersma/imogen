@@ -190,10 +190,10 @@ Azure client only sends the api-key header. So the `ModelConfig` carries a short
 Bearer token as a default header, injected by `hack/setup-kagent.sh` and refreshed by rerunning
 it. On AKS this is replaced by workload identity.
 
-The in-cluster tool server image is distroless and has no `az` or `kubectl`, so on kind only the
-network-only `list-k8s-releases` tool works there. To exercise the full pipeline from the agent
-locally, run the tool server on the host instead, where it has your `az` login and the management
-cluster kubeconfig:
+The tool server image bundles `az` and `kubectl`, but on kind there is no workload identity to
+authenticate `az`, so only the network-only `list-k8s-releases` tool works there. To exercise the
+full pipeline from the agent locally, run the tool server on the host instead, where it has your
+`az` login and the management cluster kubeconfig:
 
 1. `kubectl -n kagent patch remotemcpserver imogen-toolserver --type merge -p '{"spec":{"url":"http://host.containers.internal:8080/"}}'`
 2. `hack/run-toolserver-host.sh` (builds and serves the tool server on the host)
@@ -203,6 +203,25 @@ The agent in kind reaches the host through `host.containers.internal`. The tool 
 `IMOGEN_TOOLSERVER_ALLOW_REMOTE_HOST=1` so its DNS-rebinding protection allows that Host header.
 This host path is for the local demo; the durable home is the tool server in the AKS cluster with
 workload identity.
+
+#### In AKS with workload identity
+
+`hack/setup-kagent-aks.sh` is the durable path: it deploys kagent and the tool server into the AKS
+management cluster so the Azure-backed tools run in cluster with no secrets and no host hack. It
+builds and pushes the tool server image with `az acr build` (cloud side, so no local cross-arch
+build), creates the `imogen-toolserver` user-assigned identity, grants it the roles it needs on the
+`imogen` resource group (Contributor for galleries and builds, Cognitive Services OpenAI User for
+the model, Managed Identity Operator on the build identity), and federates it to the
+`imogen-toolserver` and `imogen-aoai-refresher` service accounts. The tool server runs as that
+identity (`azure.workload.identity/use` pod label) and reads its config from the `imogen-config`
+ConfigMap; `deploy/toolserver-rbac.yaml` gives it the cluster permissions to read the builder
+kubeconfig secret and drive the CAPI validation objects. `validate-image.sh` detects in-cluster
+mode (`IMOGEN_IN_CLUSTER=1`) and reads the builder kubeconfig from its secret instead of clusterctl.
+
+Because this kagent version still only sends the api-key header to Azure OpenAI, the agent keeps
+using a short lived Entra Bearer token on the `ModelConfig`. In AKS a `imogen-aoai-refresher`
+CronJob (the same image, workload identity) mints a fresh token every 30 minutes, patches it into
+the `ModelConfig`, and restarts the agent, so there are no manual reruns.
 
 The pipeline runs build, then validate, then promote. The agent validates a staging image before
 promoting and asks for approval before it promotes. For a hard gate, kagent supports

@@ -56,10 +56,18 @@ if ! grep -qx "$WANT" <<<"$HAVE"; then
     --target-regions "$GALLERY_LOCATION" "$BUILDER_LOCATION" -o none
 fi
 
-kubectl config use-context "$MGMT_CLUSTER" >/dev/null
-
+# In cluster the tool server already runs against the management cluster via its
+# service account, so there is no kubeconfig context to select and clusterctl is
+# not bundled in the image. Read the builder kubeconfig from the CAPI secret
+# instead. On a workstation, keep using the named context and clusterctl.
 WL_KUBECONFIG="$(mktemp -t imogen-validate-kubeconfig-XXXX)"
-clusterctl get kubeconfig "$CLUSTER" > "$WL_KUBECONFIG"
+if [[ "${IMOGEN_IN_CLUSTER:-}" == "1" ]]; then
+  kubectl get secret "${CLUSTER}-kubeconfig" -n "${IMOGEN_BUILDER_KUBECONFIG_NAMESPACE:-default}" \
+    -o jsonpath='{.data.value}' | base64 -d > "$WL_KUBECONFIG"
+else
+  kubectl config use-context "$MGMT_CLUSTER" >/dev/null
+  clusterctl get kubeconfig "$CLUSTER" > "$WL_KUBECONFIG"
+fi
 
 cleanup() {
   if [[ "${IMOGEN_VALIDATE_KEEP:-}" == "1" ]]; then

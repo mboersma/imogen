@@ -86,10 +86,20 @@ Image-builder now runs as a Kubernetes Job on the builder cluster (`deploy/build
 `hack/run-build-job.sh`), authenticated with the build managed identity through IMDS, replacing the
 earlier standalone Azure Container Instances build. The builder MachinePool keeps hitting `eastus2`
 capacity restrictions: `Standard_B4s_v2` became restricted mid-build, so the pool moved to
-`Standard_D2as_v5`.
+`Standard_D2as_v5` (later `Standard_D2as_v4` as restrictions kept shifting).
 
-Next: drive the full build through the in-cluster agent and tighten cleanup of the temporary Packer
-resource group on failures.
+Autonomous release watcher. `deploy/release-watcher.yaml` is a daily CronJob that runs
+`hack/reconcile.sh`, which posts a standing reconcile prompt to the agent over A2A and lets the agent
+do the gap analysis and run the pipeline itself. Verified live: the watcher fired, the agent called
+`list-k8s-releases` and `list-gallery-versions`, found `ubuntu-2404` versions missing from the
+community gallery, called `submit-build-job`, scaled the builder pool to one worker, and the build
+Job started on the booted node. This surfaced a namespace bug: the mgmt-side CAPI objects live in
+`default` but the tool server pod's namespace is `kagent`, so `run-build-job.sh` and
+`validate-image.sh` now name the CAPI namespace explicitly (`IMOGEN_CAPI_NAMESPACE`).
+
+Next: let the watcher drive a full unattended build → validate → promote (parking at the approval
+gate), add a `scale-builder-pool` tool to return the pool to zero after a build, and tighten cleanup
+of the temporary Packer resource group on failures.
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

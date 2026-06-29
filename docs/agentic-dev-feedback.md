@@ -52,6 +52,20 @@ progress streaming while a long tool runs.
   sidesteps the missing async semantics, but every framework user has to reinvent it. First-class async
   tools with status would remove that boilerplate.
 
+### Unattended runs stop to ask
+We added a daily release-watcher CronJob that posts a reconcile prompt to the agent over A2A and lets
+the agent compute the gap and run the pipeline. On the first live run the agent submitted the build,
+then after a few `get-build-status` polls returned "Pending" it stopped and asked "Would you like me
+to continue waiting?" and ended the turn. For an unattended trigger that is a dead end: nobody is on
+the other end to say yes, so the build never advances to validate or promote. We had to spell out in
+the prompt that it must keep polling on its own and never end the turn while a build is Pending or
+Running, only pausing for the one genuine human gate (promote approval).
+
+- **Idea:** a clearer notion of "autonomous vs. interactive" runs. When a task is kicked off by a
+  CronJob or another agent (A2A) with no human attached, the framework should bias toward continuing
+  rather than asking, or expose a per-run flag the trigger can set. Today the only lever is prompt
+  wording, which is brittle.
+
 ### Local dev networking is trial-and-error
 Running the tool server on the host and reaching it from kagent in kind took real time to work out:
 on podman and macOS `host.containers.internal` works but `10.0.2.2` and `gateway.containers.internal`
@@ -83,6 +97,19 @@ network-only tools, so the "my tool needs a CLI and cloud credentials" path is u
   workload identity, and an entrypoint logs `az` in with the federated token and keeps it fresh.
   `hack/setup-kagent-aks.sh` is effectively the "bundle a cloud CLI and authenticate with an
   identity" recipe the idea above asks for.
+
+### Shelling out to `kubectl` inherits the pod's namespace
+A subtler version of the same problem: tools that shell out to `kubectl` from inside the cluster run
+in the tool server pod's own namespace (`kagent`), but the objects they act on (the CAPI
+`MachinePool` and validation `MachineDeployment`) live in `default`. On the host the scripts worked
+because the developer's kubeconfig context defaults to `default`; in cluster the same `kubectl get`
+and `kubectl scale` silently targeted the wrong namespace and failed with "not found". The fix is to
+name the namespace explicitly on every call, but it is an easy trap because the host and in-cluster
+behavior diverge invisibly.
+
+- **Idea:** for shell-out tools, document (or template) the in-cluster vs. host environment
+  differences, especially namespace and kubeconfig defaults, since the failure only shows up once the
+  tool moves into the cluster.
 
 ## Azure OpenAI / Entra
 

@@ -35,6 +35,8 @@ RESOURCE_GROUP="${IMOGEN_RESOURCE_GROUP:-imogen}"
 STAGING_GALLERY="${IMOGEN_STAGING_GALLERY:-imogen_staging}"
 GALLERY_LOCATION="${IMOGEN_LOCATION:-westus3}"
 CLUSTER="${IMOGEN_BUILDER_CLUSTER:-imogen-builder}"
+# Namespace the CAPI objects live in on the mgmt cluster (see run-build-job.sh).
+CAPI_NS="${IMOGEN_CAPI_NAMESPACE:-default}"
 BUILDER_LOCATION="${IMOGEN_BUILDER_LOCATION:-${IMOGEN_MGMT_LOCATION:-eastus2}}"
 NODE_SIZE="${IMOGEN_BUILDER_NODE_SIZE:-Standard_D2s_v3}"
 
@@ -70,9 +72,9 @@ cleanup() {
   fi
   echo "Tearing down $NAME"
   kubectl --kubeconfig "$WL_KUBECONFIG" delete pod "${NAME}-smoke" --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete machinedeployment "$NAME" --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete kubeadmconfigtemplate "$NAME" --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete azuremachinetemplate "$NAME" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete machinedeployment "$NAME" -n "$CAPI_NS" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete kubeadmconfigtemplate "$NAME" -n "$CAPI_NS" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl delete azuremachinetemplate "$NAME" -n "$CAPI_NS" --ignore-not-found >/dev/null 2>&1 || true
   rm -f "$WL_KUBECONFIG"
 }
 trap cleanup EXIT
@@ -88,12 +90,12 @@ sed \
   -e "s|__GALLERY__|${STAGING_GALLERY}|g" \
   -e "s|__IMAGE_DEFINITION__|${IMAGE_DEFINITION}|g" \
   -e "s|__IMAGE_VERSION__|${IMAGE_VERSION}|g" \
-  "$DIR/deploy/validation-machinedeployment.yaml" | kubectl apply -f -
+  "$DIR/deploy/validation-machinedeployment.yaml" | kubectl apply -n "$CAPI_NS" -f -
 
 echo "Waiting for the validation machine to get a node (this boots a VM)"
 NODE=""
 for _ in $(seq 1 60); do
-  NODE="$(kubectl get machines -l "cluster.x-k8s.io/deployment-name=${NAME}" \
+  NODE="$(kubectl get machines -l "cluster.x-k8s.io/deployment-name=${NAME}" -n "$CAPI_NS" \
     -o jsonpath='{.items[0].status.nodeRef.name}' 2>/dev/null || true)"
   [[ -n "$NODE" ]] && break
   sleep 15

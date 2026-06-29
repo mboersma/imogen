@@ -91,7 +91,8 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
 ├── assets/              # static assets (project image + attribution)
 ├── cmd/
 │   └── imogen-toolserver/  # MCP tool server entrypoint
-├── deploy/              # kagent manifests + CAPZ builder cluster addons (Calico, identity)
+├── deploy/              # kagent manifests + CAPZ builder cluster addons (Calico, identity),
+│                        #   build Job, release-watcher CronJob
 ├── docs/
 │   └── plan.md          # design & MVP plan
 ├── hack/                # operational scripts (Azure foundation, build, openai, kagent)
@@ -231,3 +232,20 @@ The pipeline runs build, then validate, then promote. The agent validates a stag
 promoting and asks for approval before it promotes. For a hard gate, kagent supports
 `requireApproval` on the agent's MCP tool list to pause for human confirmation on named tools such
 as `promote-image`.
+
+#### Release watcher (autonomous trigger)
+
+`deploy/release-watcher.yaml` is a daily CronJob (`imogen-release-watcher`, same tool server image)
+that runs `hack/reconcile.sh`. The script is thin on purpose: it posts a standing reconcile prompt
+to the agent's A2A endpoint over JSON-RPC `message/stream` and lets the agent do the work. The agent
+calls `list-k8s-releases` and `list-gallery-versions`, computes which upstream versions are missing
+from the community gallery, and drives `submit-build-job` → `get-build-status` → `validate-image` →
+`promote-image` (parking at the human approval gate before promote). Tunables are env vars on the
+CronJob: `IMOGEN_RECONCILE_FLAVORS`, `IMOGEN_RECONCILE_MINORS`, `IMOGEN_RECONCILE_MAX`,
+`IMOGEN_RECONCILE_TIMEOUT`. Because kagent tasks run server-side, the curl stream can disconnect
+while a long build runs; a human resubscribes (kagent UI or `tasks/resubscribe`) to approve promote.
+
+The mgmt-side CAPI objects (the builder `MachinePool`, validation `MachineDeployment`) live in the
+`default` namespace, so `run-build-job.sh` and `validate-image.sh` name that namespace explicitly
+(`IMOGEN_CAPI_NAMESPACE`, default `default`). The tool server pod's own namespace is `kagent`, so
+omitting it makes those `kubectl` calls silently target the wrong namespace.

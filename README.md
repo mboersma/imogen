@@ -66,6 +66,11 @@ locally, run the tool server on the host with `hack/run-toolserver-host.sh` and 
 workload identity instead, so the Azure-backed tools run in cluster with no secrets, run
 `hack/setup-kagent-aks.sh`. See [AGENTS.md](AGENTS.md) for the full steps.
 
+`setup-kagent-aks.sh` also installs a daily release-watcher CronJob (`deploy/release-watcher.yaml`,
+`hack/reconcile.sh`) that asks the agent to reconcile the community gallery against upstream
+Kubernetes releases and drive any missing versions through the pipeline, pausing for human approval
+before it promotes.
+
 To stand up the CAPZ builder cluster, run `hack/setup-mgmt-cluster.sh` (AKS management cluster
 plus Cluster API) then `hack/setup-builder-cluster.sh` (the builder workload cluster). Scale the
 build pool with `hack/scale-builder.sh <count>` and tear it down with `hack/teardown-builder.sh`.

@@ -1,0 +1,47 @@
+# Release watcher: a scheduled trigger that asks the imogen agent to reconcile
+# the community gallery against upstream Kubernetes releases. It runs the thin
+# hack/reconcile.sh, which posts a reconcile prompt to the agent's A2A endpoint;
+# the agent does the gap analysis and drives build -> validate -> (approval) ->
+# promote with its own tools. Promotion still waits for human approval.
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: imogen-release-watcher
+  namespace: kagent
+spec:
+  schedule: "0 8 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      activeDeadlineSeconds: 2100
+      template:
+        metadata:
+          labels:
+            app: imogen-release-watcher
+        spec:
+          restartPolicy: Never
+          containers:
+            - name: reconcile
+              image: __TOOLSERVER_IMAGE__
+              command: ["/app/hack/reconcile.sh"]
+              env:
+                - name: IMOGEN_AGENT_URL
+                  value: "http://imogen.kagent.svc.cluster.local:8080/"
+                - name: IMOGEN_RECONCILE_FLAVORS
+                  value: "ubuntu-2404"
+                - name: IMOGEN_RECONCILE_MINORS
+                  value: "3"
+                - name: IMOGEN_RECONCILE_MAX
+                  value: "1"
+                - name: IMOGEN_RECONCILE_TIMEOUT
+                  value: "1800"
+              resources:
+                requests:
+                  cpu: "50m"
+                  memory: 64Mi
+                limits:
+                  cpu: "250m"
+                  memory: 256Mi

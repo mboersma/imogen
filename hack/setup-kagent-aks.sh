@@ -139,6 +139,7 @@ sed "s|__AZURE_AD_TOKEN__|${TOKEN}|" "$DIR/deploy/modelconfig.yaml" | kubectl ap
 kubectl apply -f "$DIR/deploy/agent.yaml"
 sed -e "s|__TOOLSERVER_IMAGE__|${IMAGE}|" -e "s|__CLIENT_ID__|${TS_CLIENT_ID}|" \
   "$DIR/deploy/aoai-token-refresher.yaml" | kubectl apply -f -
+sed "s|__TOOLSERVER_IMAGE__|${IMAGE}|" "$DIR/deploy/release-watcher.yaml" | kubectl apply -f -
 
 echo "Waiting for the tool server to be ready"
 kubectl -n "$NAMESPACE" rollout status deploy/imogen-toolserver --timeout=180s

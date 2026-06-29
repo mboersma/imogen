@@ -105,11 +105,12 @@ current 1.36 minor it validated the freshly built `1.35.6` staging image, paused
 gate, and on approval promoted `1.35.6` to the community gallery. That closes the MVP: a full
 build → validate → approve → promote run driven by the agent.
 
-Next (production hardening): add a `scale-builder-pool` tool so the pool returns to zero after a build
-without a manual `kubectl scale`; add `gc-eol-images` to retire end-of-life versions and close the
-lifecycle; model `promote-image` as submit-then-poll so it does not trip the MCP client's 300 second
-timeout (the agent currently narrates a timed-out promote as success); let the daily watcher run the
-whole loop unattended; and tighten cleanup of the temporary Packer resource group on failures.
+Next (production hardening): autoscale the builder pool with cluster-autoscaler so it scales 0↔N on
+demand instead of a manual `kubectl scale` (see "Scaling and footprint" below, this supersedes the
+earlier `scale-builder-pool` tool idea); add `gc-eol-images` to retire end-of-life versions and close
+the lifecycle; model `promote-image` as submit-then-poll so it does not trip the MCP client's 300
+second timeout (the agent currently narrates a timed-out promote as success); let the daily watcher
+run the whole loop unattended; and tighten cleanup of the temporary Packer resource group on failures.
 
 Validation version skew. Driving the watcher end to end surfaced that the builder cluster's control
 plane (then v1.34.8) could not validate a 1.35.6 image: a node's kubelet may run up to two minors
@@ -123,6 +124,34 @@ check wants the worker to match the control-plane minor exactly), so the validat
 carries `machineset.cluster.x-k8s.io/skip-preflight-checks`. With the v1.36.1 control plane in place,
 the agent validated and promoted `1.35.6` to the community gallery end to end through the approval
 gate.
+
+Scaling and footprint (planned). Two refinements were evaluated for how the builder cluster scales and
+how small the idle footprint can get.
+
+1. cluster-autoscaler for the builder pool (planned, recommended). The Cluster API autoscaler provider
+   can scale an `AzureMachinePool` 0↔N from unschedulable pods, so the agent would just submit the
+   build Job and the cluster would right-size itself, then scale back to zero after the idle delay.
+   This replaces both the imperative scale-up in `run-build-job.sh` and the proposed `scale-builder-pool`
+   tool. Caveats: scale-from-zero needs capacity annotations on the MachinePool
+   (`capacity.cluster-autoscaler.kubernetes.io/{cpu,memory}` alongside the existing
+   `cluster-api-autoscaler-node-group-{min,max}-size`) plus real resource requests on the build Job; the
+   autoscaler runs against the management cluster where the CAPI objects live; and MachinePool support is
+   newer than MachineDeployment support, though it works for CAPZ. Validation already uses a one-replica
+   MachineDeployment, so it does not need autoscaling.
+
+2. clusterctl pivot to a self-managed builder cluster, then delete AKS (considered, deferred). Moving
+   the CAPI objects into the builder cluster with `clusterctl move` and tearing down AKS is a real,
+   supported pattern, but it is deferred. AKS gives a free managed control plane, while a self-managed
+   CAPZ cluster must run its own control-plane VM 24/7 and own etcd backups, certs, and CP upgrades, so
+   the idle cost is not clearly lower. It also worsens reconstructibility: Azure has reaped the builder
+   cluster repeatedly, and with AKS as manager it is rebuildable from scripts, whereas a reaped
+   self-managed cluster has no manager left to rebuild it. The tool server, agent, ModelConfig, and
+   release-watcher CronJob would also need a new home. The lower-risk way to shrink the idle footprint is
+   to keep the cheap AKS management cluster and shrink the builder when idle: cluster-autoscaler scales
+   workers to zero (refinement 1), and more aggressively the agent can tear the whole builder cluster
+   down after a reconcile and recreate it on demand (about 15 minutes), so when fully idle only the AKS
+   management node runs. That also makes a nice agentic demo of the agent provisioning and deprovisioning
+   its own build infrastructure.
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

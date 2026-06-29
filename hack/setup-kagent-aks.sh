@@ -111,8 +111,23 @@ done
 echo "Installing kagent"
 helm upgrade --install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
   -n "$NAMESPACE" --create-namespace >/dev/null
+# Disable the bundled sample agents and demo MCP servers: imogen only needs its
+# own agent and tool server, and the samples would otherwise saturate CPU on the
+# small management cluster and leave the imogen agent pod Pending.
 helm upgrade --install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
-  -n "$NAMESPACE" >/dev/null
+  -n "$NAMESPACE" \
+  --set k8s-agent.enabled=false \
+  --set kgateway-agent.enabled=false \
+  --set istio-agent.enabled=false \
+  --set promql-agent.enabled=false \
+  --set observability-agent.enabled=false \
+  --set argo-rollouts-agent.enabled=false \
+  --set helm-agent.enabled=false \
+  --set cilium-policy-agent.enabled=false \
+  --set cilium-manager-agent.enabled=false \
+  --set cilium-debug-agent.enabled=false \
+  --set grafana-mcp.enabled=false \
+  --set querydoc.enabled=false >/dev/null
 
 echo "Creating the imogen-config ConfigMap"
 BUILD_CLIENT_ID="${IMOGEN_BUILDER_CLIENT_ID:-$(az identity show -g "$RESOURCE_GROUP" -n "$BUILD_IDENTITY" --query clientId -o tsv 2>/dev/null || true)}"

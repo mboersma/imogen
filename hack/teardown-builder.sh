@@ -42,6 +42,10 @@ CLUSTER_KINDS=(
 
 kubectl config use-context "$MGMT_CLUSTER" >/dev/null
 
+echo "Removing cluster-autoscaler for $CLUSTER"
+kubectl -n default delete deployment,serviceaccount -l app=cluster-autoscaler --ignore-not-found >/dev/null 2>&1 || true
+kubectl delete clusterrole,clusterrolebinding imogen-cluster-autoscaler --ignore-not-found >/dev/null 2>&1 || true
+
 echo "Deleting workload cluster $CLUSTER (CAPZ removes its Azure resources)"
 kubectl delete cluster "$CLUSTER" --ignore-not-found --wait=false
 

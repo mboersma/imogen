@@ -120,8 +120,10 @@ with, granting it Contributor on the subscription so Packer can create the tempo
 `hack/run-build-job.sh <flavor> <version>` runs the image-builder container as a Kubernetes Job on
 the CAPZ builder cluster, publishing to the staging gallery. The Job pod authenticates with the
 build identity exposed on the builder VMSS through IMDS (no stored secret), so the build identity is
-assigned to the worker VMSS by `hack/setup-builder-cluster.sh`. The script scales the builder pool up
-to one worker if it is idle, then applies `deploy/build-job.yaml`; it returns immediately with the
+assigned to the worker VMSS by `hack/setup-builder-cluster.sh`. The Job pod requests CPU and memory,
+so when the builder pool is at zero the pod stays Pending and cluster-autoscaler scales the pool up
+to give it a node; the autoscaler scales back to zero once the build finishes (see Builder cluster
+below). `hack/run-build-job.sh` applies `deploy/build-job.yaml` and returns immediately with the
 Job name. `hack/build-status.sh <job>` reports the Job state (Pending, Running, Succeeded, Failed or
 NotFound). The `submit-build-job` and `get-build-status` MCP tools wrap the same two scripts.
 
@@ -179,8 +181,18 @@ version must match an available reference image and should be the newest in-scop
 validation above). The builder cluster is ephemeral, so to move it to a newer minor recreate it
 (`teardown-builder.sh` then `setup-builder-cluster.sh`) rather than upgrading in place, since a
 control-plane upgrade can only step one minor at a time.
-`hack/scale-builder.sh <count>` scales the pool imperatively, down to 0 when idle.
-`hack/teardown-builder.sh` deletes the workload cluster, and with `--mgmt` the AKS cluster too. It
+
+`hack/setup-builder-cluster.sh` also deploys cluster-autoscaler (`deploy/cluster-autoscaler.yaml`)
+onto the management cluster. It runs the Cluster API provider against the in-cluster CAPI objects
+and watches the builder workload cluster through the CAPI-generated admin kubeconfig secret, scaling
+`${CLUSTER}-mp-0` between 0 and `IMOGEN_BUILDER_MAX_NODES` (default 3) from pending pods. The pool is
+annotated for scale-from-zero (`cluster-api-autoscaler-node-group-{min,max}-size` plus
+`capacity.cluster-autoscaler.kubernetes.io/{cpu,memory}` derived from the node SKU). A pending build
+Job pod triggers a scale-up, and the pool drops back to 0 after about five idle minutes; build Job
+pods carry `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` so a running build is never
+interrupted. `hack/scale-builder.sh <count>` still scales the pool imperatively as a manual override.
+`hack/teardown-builder.sh` removes the autoscaler, then deletes the workload cluster, and with
+`--mgmt` the AKS cluster too. It
 waits a bounded time for graceful deletion, then forces cleanup (deleting the workload resource group
 and clearing leftover CAPI finalizers) so a cluster whose nodes Azure already deallocated still tears
 down cleanly.

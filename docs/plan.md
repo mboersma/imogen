@@ -105,9 +105,7 @@ current 1.36 minor it validated the freshly built `1.35.6` staging image, paused
 gate, and on approval promoted `1.35.6` to the community gallery. That closes the MVP: a full
 build → validate → approve → promote run driven by the agent.
 
-Next (production hardening): autoscale the builder pool with cluster-autoscaler so it scales 0↔N on
-demand instead of a manual `kubectl scale` (see "Scaling and footprint" below, this supersedes the
-earlier `scale-builder-pool` tool idea); add `gc-eol-images` to retire end-of-life versions and close
+Next (production hardening): add `gc-eol-images` to retire end-of-life versions and close
 the lifecycle; model `promote-image` as submit-then-poll so it does not trip the MCP client's 300
 second timeout (the agent currently narrates a timed-out promote as success); let the daily watcher
 run the whole loop unattended; and tighten cleanup of the temporary Packer resource group on failures.
@@ -125,19 +123,21 @@ carries `machineset.cluster.x-k8s.io/skip-preflight-checks`. With the v1.36.1 co
 the agent validated and promoted `1.35.6` to the community gallery end to end through the approval
 gate.
 
-Scaling and footprint (planned). Two refinements were evaluated for how the builder cluster scales and
+Scaling and footprint. Two refinements were evaluated for how the builder cluster scales and
 how small the idle footprint can get.
 
-1. cluster-autoscaler for the builder pool (planned, recommended). The Cluster API autoscaler provider
-   can scale an `AzureMachinePool` 0↔N from unschedulable pods, so the agent would just submit the
-   build Job and the cluster would right-size itself, then scale back to zero after the idle delay.
-   This replaces both the imperative scale-up in `run-build-job.sh` and the proposed `scale-builder-pool`
-   tool. Caveats: scale-from-zero needs capacity annotations on the MachinePool
-   (`capacity.cluster-autoscaler.kubernetes.io/{cpu,memory}` alongside the existing
-   `cluster-api-autoscaler-node-group-{min,max}-size`) plus real resource requests on the build Job; the
-   autoscaler runs against the management cluster where the CAPI objects live; and MachinePool support is
-   newer than MachineDeployment support, though it works for CAPZ. Validation already uses a one-replica
-   MachineDeployment, so it does not need autoscaling.
+1. cluster-autoscaler for the builder pool (done). The Cluster API autoscaler provider scales the
+   `AzureMachinePool` 0↔N from unschedulable pods, so the agent just submits the build Job and the
+   cluster right-sizes itself, then scales back to zero after the idle delay. This replaces both the
+   imperative scale-up in `run-build-job.sh` and the proposed `scale-builder-pool` tool. The autoscaler
+   (`deploy/cluster-autoscaler.yaml`) runs on the management cluster where the CAPI objects live and
+   watches the builder workload cluster through its CAPI admin kubeconfig secret;
+   `hack/setup-builder-cluster.sh` deploys it and annotates the pool for scale-from-zero
+   (`capacity.cluster-autoscaler.kubernetes.io/{cpu,memory}` from the node SKU alongside
+   `cluster-api-autoscaler-node-group-{min,max}-size`). The build Job requests CPU and memory and is
+   marked `safe-to-evict: "false"` so a running build is never interrupted. Verified live on the v1.36.1
+   builder: a pending pod scaled the pool 0→1 and it dropped back to 0 after the idle window. Validation
+   uses a one-replica MachineDeployment, so it does not need autoscaling.
 
 2. clusterctl pivot to a self-managed builder cluster, then delete AKS (considered, deferred). Moving
    the CAPI objects into the builder cluster with `clusterctl move` and tearing down AKS is a real,

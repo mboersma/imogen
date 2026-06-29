@@ -44,10 +44,6 @@ STAGING_GALLERY="${IMOGEN_STAGING_GALLERY:-imogen_staging}"
 BUILDER_IMAGE="${IMOGEN_BUILDER_IMAGE:-registry.k8s.io/scl-image-builder/cluster-node-image-builder-amd64:v0.1.52}"
 MGMT_CLUSTER="${IMOGEN_MGMT_CLUSTER:-imogen-mgmt}"
 CLUSTER="${IMOGEN_BUILDER_CLUSTER:-imogen-builder}"
-# Namespace the CAPI objects (MachinePool, etc.) live in on the mgmt cluster.
-# In cluster the tool server's default namespace is its own (kagent), so the
-# MachinePool operations must name the CAPI namespace explicitly.
-CAPI_NS="${IMOGEN_CAPI_NAMESPACE:-default}"
 IDENTITY="${IMOGEN_BUILDER_IDENTITY:-imogen-builder}"
 CLIENT_ID="${IMOGEN_BUILDER_CLIENT_ID:-$(az identity show -g "$RESOURCE_GROUP" -n "$IDENTITY" --query clientId -o tsv)}"
 
@@ -61,13 +57,11 @@ if [[ "${IMOGEN_IN_CLUSTER:-}" != "1" ]]; then
   kubectl config use-context "$MGMT_CLUSTER" >/dev/null
 fi
 
-# The build pod needs a worker to schedule on, so scale the pool up to at least
-# one. This does not wait; the Job pod stays Pending until the node joins.
-REPLICAS="$(kubectl get machinepool "${CLUSTER}-mp-0" -n "$CAPI_NS" -o jsonpath='{.spec.replicas}' 2>/dev/null || echo 0)"
-if [[ "${REPLICAS:-0}" -lt 1 ]]; then
-  echo "Scaling builder pool ${CLUSTER}-mp-0 to 1 for the build"
-  kubectl scale machinepool "${CLUSTER}-mp-0" -n "$CAPI_NS" --replicas=1 >/dev/null
-fi
+# The build pod requests CPU and memory but has nowhere to run when the pool is
+# at zero, so it stays Pending and cluster-autoscaler scales the MachinePool up
+# to give it a node (see deploy/cluster-autoscaler.yaml). The autoscaler scales
+# back to zero once the build finishes. Use hack/scale-builder.sh to override
+# manually if the autoscaler is not running.
 
 WL_KUBECONFIG="$(imogen_builder_kubeconfig)"
 trap 'rm -f "$WL_KUBECONFIG"' EXIT

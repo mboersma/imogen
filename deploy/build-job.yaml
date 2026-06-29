@@ -23,6 +23,10 @@ spec:
     metadata:
       labels:
         app: imogen-build
+      annotations:
+        # A build runs a real Packer VM for tens of minutes; never let the
+        # autoscaler evict the node out from under it.
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     spec:
       restartPolicy: Never
       containers:

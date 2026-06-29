@@ -49,6 +49,10 @@ CALICO_VERSION="${IMOGEN_CALICO_VERSION:-v3.29.7}"
 # How long the Machine controller spends draining/deleting a node before giving
 # up, so teardown is not blocked by nodes Azure has already deallocated.
 DRAIN_TIMEOUT_SECONDS="${IMOGEN_BUILDER_DRAIN_TIMEOUT_SECONDS:-120}"
+# cluster-autoscaler scales the builder MachinePool 0..MAX_NODES on demand. The
+# image matches the AKS management cluster minor.
+MAX_NODES="${IMOGEN_BUILDER_MAX_NODES:-3}"
+AUTOSCALER_IMAGE="${IMOGEN_AUTOSCALER_IMAGE:-registry.k8s.io/autoscaling/cluster-autoscaler:v1.34.0}"
 
 CLIENT_ID="${IMOGEN_CAPZ_CLIENT_ID:-$(az identity show -g "$RESOURCE_GROUP" -n "$UAMI" --query clientId -o tsv)}"
 
@@ -87,6 +91,25 @@ kubectl patch "kubeadmcontrolplane/${CLUSTER}-control-plane" --type merge -p \
   "{\"spec\":{\"machineTemplate\":{\"spec\":{\"deletion\":{\"nodeDrainTimeoutSeconds\":${DRAIN_TIMEOUT_SECONDS},\"nodeVolumeDetachTimeoutSeconds\":${DRAIN_TIMEOUT_SECONDS}}}}}}"
 kubectl patch "machinepool/${CLUSTER}-mp-0" --type merge -p \
   "{\"spec\":{\"template\":{\"spec\":{\"deletion\":{\"nodeDrainTimeoutSeconds\":${DRAIN_TIMEOUT_SECONDS},\"nodeVolumeDetachTimeoutSeconds\":${DRAIN_TIMEOUT_SECONDS}}}}}}"
+
+# Annotate the MachinePool for cluster-autoscaler: min/max group size and, since
+# the pool can sit at zero, the node capacity so the autoscaler can size a pod
+# against a node that does not exist yet. Capacity comes from the VM SKU unless
+# overridden.
+NODE_CPU="${IMOGEN_BUILDER_NODE_CPU:-}"
+NODE_MEM_MIB="${IMOGEN_BUILDER_NODE_MEMORY_MIB:-}"
+if [[ -z "$NODE_CPU" || -z "$NODE_MEM_MIB" ]]; then
+  CAPS_JSON="$(az vm list-skus -l "$LOCATION" --size "$NODE_SIZE" \
+    --query "[?name=='${NODE_SIZE}'].capabilities[]" -o json)"
+  NODE_CPU="${NODE_CPU:-$(echo "$CAPS_JSON" | python3 -c 'import sys,json; c={x["name"]:x["value"] for x in json.load(sys.stdin)}; print(c["vCPUs"])')}"
+  NODE_MEM_MIB="${NODE_MEM_MIB:-$(echo "$CAPS_JSON" | python3 -c 'import sys,json; c={x["name"]:x["value"] for x in json.load(sys.stdin)}; print(int(float(c["MemoryGB"])*1024))')}"
+fi
+echo "Annotating ${CLUSTER}-mp-0 for autoscaling (0..${MAX_NODES}, ${NODE_CPU} vCPU / ${NODE_MEM_MIB}Mi)"
+kubectl annotate "machinepool/${CLUSTER}-mp-0" --overwrite \
+  cluster.x-k8s.io/cluster-api-autoscaler-node-group-min-size="0" \
+  cluster.x-k8s.io/cluster-api-autoscaler-node-group-max-size="${MAX_NODES}" \
+  capacity.cluster-autoscaler.kubernetes.io/cpu="${NODE_CPU}" \
+  capacity.cluster-autoscaler.kubernetes.io/memory="${NODE_MEM_MIB}Mi"
 
 echo "Waiting for the control plane to initialize (a few minutes)"
 if ! kubectl wait --for=condition=Initialized "kubeadmcontrolplane/${CLUSTER}-control-plane" --timeout=900s; then
@@ -145,6 +168,21 @@ else
   echo "Build identity $BUILD_IDENTITY not found; run hack/setup-build-identity.sh before building"
 fi
 
+# Deploy cluster-autoscaler on the management cluster. It watches the builder
+# workload cluster through the CAPI-generated admin kubeconfig secret and scales
+# the MachinePool 0..MAX_NODES from pending build pods. Re-applying is idempotent;
+# restart it so it re-reads the kubeconfig if the cluster was recreated.
+KUBECONFIG_SECRET="${CLUSTER}-kubeconfig"
+echo "Deploying cluster-autoscaler (image $AUTOSCALER_IMAGE)"
+sed \
+  -e "s|__NS__|default|g" \
+  -e "s|__CLUSTER__|${CLUSTER}|g" \
+  -e "s|__AUTOSCALER_IMAGE__|${AUTOSCALER_IMAGE}|g" \
+  -e "s|__KUBECONFIG_SECRET__|${KUBECONFIG_SECRET}|g" \
+  "$DIR/deploy/cluster-autoscaler.yaml" | kubectl apply -f -
+kubectl -n default rollout restart deploy/cluster-autoscaler >/dev/null 2>&1 || true
+
 echo
 echo "Builder cluster $CLUSTER is up. Workload kubeconfig: $WL_KUBECONFIG"
-echo "Scale the build pool with: hack/scale-builder.sh <count>"
+echo "cluster-autoscaler scales ${CLUSTER}-mp-0 0..${MAX_NODES} on demand."
+echo "Scale the build pool manually with: hack/scale-builder.sh <count>"

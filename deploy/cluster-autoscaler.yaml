@@ -1,0 +1,125 @@
+# cluster-autoscaler for the CAPZ builder pool.
+#
+# Runs on the management cluster (AKS) and scales the builder MachinePool 0..N in
+# response to pending build Job pods, then back to zero when the node is idle.
+# This replaces the imperative `kubectl scale` in run-build-job.sh / scale-builder.sh.
+#
+# Topology (see the Cluster API cloud provider README): the autoscaler talks to the
+# management cluster (where the CAPI objects live) with its in-cluster service
+# account, made authoritative with --clusterapi-cloud-config-authoritative, and to
+# the builder workload cluster (to watch its Nodes and Pods) through the
+# CAPI-generated admin kubeconfig secret, mounted and passed as --kubeconfig. The
+# builder MachinePool carries the node-group min/max and scale-from-zero capacity
+# annotations (set by hack/setup-builder-cluster.sh).
+#
+# hack/setup-builder-cluster.sh fills in the placeholders and applies this.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cluster-autoscaler
+  namespace: __NS__
+  labels:
+    app: cluster-autoscaler
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: imogen-cluster-autoscaler
+  labels:
+    app: cluster-autoscaler
+rules:
+  # Scale the Cluster API resources on the management cluster.
+  - apiGroups: ["cluster.x-k8s.io"]
+    resources:
+      - machinedeployments
+      - machinedeployments/scale
+      - machinepools
+      - machinepools/scale
+      - machines
+      - machinesets
+      - machinesets/scale
+    verbs: ["get", "list", "update", "watch", "patch"]
+  # Read infrastructure machine templates and machine-pool machines for
+  # scale-from-zero sizing, and delete pool machines on scale-down.
+  - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+    resources: ["*"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["infrastructure.cluster.x-k8s.io"]
+    resources: ["azuremachinepoolmachines"]
+    verbs: ["get", "list", "watch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: imogen-cluster-autoscaler
+  labels:
+    app: cluster-autoscaler
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: imogen-cluster-autoscaler
+subjects:
+  - kind: ServiceAccount
+    name: cluster-autoscaler
+    namespace: __NS__
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: cluster-autoscaler
+  namespace: __NS__
+  labels:
+    app: cluster-autoscaler
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: cluster-autoscaler
+  template:
+    metadata:
+      labels:
+        app: cluster-autoscaler
+    spec:
+      serviceAccountName: cluster-autoscaler
+      containers:
+        - name: cluster-autoscaler
+          image: __AUTOSCALER_IMAGE__
+          command:
+            - /cluster-autoscaler
+          args:
+            - --cloud-provider=clusterapi
+            # Use the in-cluster service account for the management cluster
+            # instead of falling back to the workload --kubeconfig.
+            - --clusterapi-cloud-config-authoritative
+            # Watch Nodes and Pods on the builder workload cluster.
+            - --kubeconfig=/workload/value
+            # Discover the builder MachinePool by cluster name and namespace.
+            - --node-group-auto-discovery=clusterapi:clusterName=__CLUSTER__,namespace=__NS__
+            # Single replica; skip leader election (it would target the workload).
+            - --leader-elect=false
+            # Dedicated build cluster: allow scaling the worker node all the way
+            # to zero even though it runs the usual system pods.
+            - --skip-nodes-with-system-pods=false
+            - --skip-nodes-with-local-storage=false
+            - --scale-down-enabled=true
+            - --scale-down-unneeded-time=5m
+            - --scale-down-delay-after-add=3m
+            - --max-node-provision-time=20m
+            - --v=2
+            - --logtostderr=true
+            - --stderrthreshold=info
+          volumeMounts:
+            - name: workload-kubeconfig
+              mountPath: /workload
+              readOnly: true
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              cpu: 200m
+              memory: 512Mi
+      volumes:
+        - name: workload-kubeconfig
+          secret:
+            secretName: __KUBECONFIG_SECRET__

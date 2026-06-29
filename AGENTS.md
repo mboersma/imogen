@@ -172,21 +172,27 @@ workload identity so there are no stored secrets.
 identity enabled, a user-assigned identity (`imogen-capz`) with Contributor on the subscription,
 federated credentials for the `capz-manager` and `azureserviceoperator-default` service accounts,
 then runs `clusterctl init` (with `EXP_MACHINE_POOL=true`) and applies the `AzureClusterIdentity`
-from `deploy/azure-cluster-identity.yaml`.
+from `deploy/azure-cluster-identity.yaml`. The AKS OIDC issuer changes whenever the cluster is
+recreated, so the script refreshes its federated credentials when the issuer no longer matches,
+which keeps CAPZ workload-identity auth working across rebuilds.
 
 `hack/setup-builder-cluster.sh` generates a self-managed "builder" workload cluster with one VMSS
 MachinePool (`clusterctl generate cluster --flavor machinepool`), then installs Calico
-(`deploy/calico-values.yaml`) and the external Azure cloud provider so the nodes become Ready. VM
-sizes are configurable (`IMOGEN_BUILDER_CP_SIZE`, `IMOGEN_BUILDER_NODE_SIZE`) and default to broadly
-available v2 sizes; the script fails fast via `hack/lib.sh` `imogen_require_sku` if a size is not
-offered in the region, sets bounded node drain/detach timeouts so teardown is not blocked by
-deallocated nodes, and waits for the expected worker count. It also assigns the build managed
-identity to the worker VMSS so image-builder Jobs can authenticate through IMDS. The control plane
-boots from the CAPI community-gallery reference image for `IMOGEN_BUILDER_K8S_VERSION`, so that
-version must match an available reference image and should be the newest in-scope minor (see Image
-validation above). The builder cluster is ephemeral, so to move it to a newer minor recreate it
-(`teardown-builder.sh` then `setup-builder-cluster.sh`) rather than upgrading in place, since a
-control-plane upgrade can only step one minor at a time.
+(`deploy/calico-values.yaml`) and the external Azure cloud provider so the nodes become Ready. The
+builder runs in `IMOGEN_BUILDER_LOCATION` (falling back to the mgmt region, then the gallery region),
+so it can sit in a different region from the management cluster. That matters because the CAPI
+community-gallery reference image must be replicated to the builder region, and capacity-constrained
+regions may not carry every version, so the builder lands where the chosen `IMOGEN_BUILDER_K8S_VERSION`
+image actually exists. VM sizes are configurable (`IMOGEN_BUILDER_CP_SIZE`, `IMOGEN_BUILDER_NODE_SIZE`)
+and default to broadly available v2 sizes; the script fails fast via `hack/lib.sh` `imogen_require_sku`
+if a size is not offered in the region, sets bounded node drain/detach timeouts so teardown is not
+blocked by deallocated nodes, and waits for the expected worker count. It also assigns the build
+managed identity to the worker VMSS so image-builder Jobs can authenticate through IMDS. The control
+plane boots from the CAPI community-gallery reference image for `IMOGEN_BUILDER_K8S_VERSION`, so that
+version must match a reference image replicated to the builder region and should be the newest
+in-scope minor (see Image validation above). The builder cluster is ephemeral, so to move it to a
+newer minor recreate it (`teardown-builder.sh` then `setup-builder-cluster.sh`) rather than upgrading
+in place, since a control-plane upgrade can only step one minor at a time.
 
 `hack/setup-builder-cluster.sh` also deploys cluster-autoscaler (`deploy/cluster-autoscaler.yaml`)
 onto the management cluster. It runs the Cluster API provider against the in-cluster CAPI objects
@@ -251,8 +257,11 @@ builds and pushes the tool server image with `az acr build` (cloud side, so no l
 build), creates the `imogen-toolserver` user-assigned identity, grants it the roles it needs on the
 `imogen` resource group (Contributor for galleries and builds, Cognitive Services OpenAI User for
 the model, Managed Identity Operator on the build identity), and federates it to the
-`imogen-toolserver` and `imogen-aoai-refresher` service accounts. The tool server runs as that
-identity (`azure.workload.identity/use` pod label) and reads its config from the `imogen-config`
+`imogen-toolserver` and `imogen-aoai-refresher` service accounts (refreshing those federated
+credentials too when an AKS rebuild changes the OIDC issuer). It installs kagent with the bundled
+sample agents and demo MCP servers disabled, since imogen only needs its own agent and tool server
+and the samples would otherwise saturate CPU on the small management cluster. The tool server runs as
+that identity (`azure.workload.identity/use` pod label) and reads its config from the `imogen-config`
 ConfigMap; `deploy/toolserver-rbac.yaml` gives it the cluster permissions to read the builder
 kubeconfig secret and drive the CAPI validation objects. `validate-image.sh` detects in-cluster
 mode (`IMOGEN_IN_CLUSTER=1`) and reads the builder kubeconfig from its secret instead of clusterctl.

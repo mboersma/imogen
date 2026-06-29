@@ -28,7 +28,10 @@ source "$(dirname "$0")/lib.sh"
 SUBSCRIPTION_ID="${IMOGEN_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}"
 TENANT_ID="${IMOGEN_TENANT_ID:-$(az account show --query tenantId -o tsv)}"
 RESOURCE_GROUP="${IMOGEN_RESOURCE_GROUP:-imogen}"
-LOCATION="${IMOGEN_MGMT_LOCATION:-${IMOGEN_LOCATION:-westus3}}"
+# The builder workload cluster can run in its own region, independent of the
+# management cluster, so it lands where the CAPI reference image is replicated and
+# VM capacity is available. Falls back to the mgmt region, then the gallery region.
+LOCATION="${IMOGEN_BUILDER_LOCATION:-${IMOGEN_MGMT_LOCATION:-${IMOGEN_LOCATION:-westus3}}}"
 MGMT_CLUSTER="${IMOGEN_MGMT_CLUSTER:-imogen-mgmt}"
 UAMI="${IMOGEN_CAPZ_IDENTITY:-imogen-capz}"
 CLUSTER="${IMOGEN_BUILDER_CLUSTER:-imogen-builder}"

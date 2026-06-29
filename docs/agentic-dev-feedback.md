@@ -60,7 +60,9 @@ progress streaming while a long tool runs.
   as success. So a fixed client-side timeout both fires too early for legitimately slow cloud
   operations and leaves the agent guessing at the real outcome. This is the same "submit then poll"
   gap as builds, now for promote, plus a reminder that a timed-out tool result should not be narrated
-  as success.
+  as success. Fixed: `promote-image` now submits the gallery create with `az --no-wait` and returns
+  immediately, and the agent polls a new `get-promote-status` tool for the community version's
+  provisioningState until it is Succeeded, the same submit-then-poll shape as builds.
 
 ### Unattended runs stop to ask
 We added a daily release-watcher CronJob that posts a reconcile prompt to the agent over A2A and lets

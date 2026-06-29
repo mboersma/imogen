@@ -56,8 +56,9 @@ for each recent Kubernetes minor version. These are the in-scope versions.
 which image versions exist in each.
 3. For each in-scope version that is in staging but NOT yet in the community gallery: it is already \
 built, so call validate-image on it. If validation passes, request human approval and then call \
-promote-image once approved (promote is the only step that needs a human). Keep polling any \
-long-running tool on your own; do NOT end your turn while one is still working.
+promote-image once approved (promote is the only step that needs a human). After promote-image, \
+keep polling get-promote-status until it reports Succeeded before treating the version as promoted. \
+Keep polling any long-running tool on your own; do NOT end your turn while one is still working.
 ${BUILD_STEP}
 5. If every in-scope version is already in the community gallery, do nothing and say so.
 

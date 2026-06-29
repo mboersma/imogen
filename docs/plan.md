@@ -22,9 +22,11 @@ Done:
   `get-build-status`. Verified end-to-end: ubuntu-2404 builds published to `imogen_staging`. The build
   pins the real Kubernetes version (semver, series, deb/rpm) so the gallery version label matches what
   is installed.
-- Tool `promote-image` with `hack/promote-image.sh`: copies a validated version from the
-  staging gallery to the community gallery, sourced from the staging version. Verified
-  end-to-end: promoted `1.34.9` into `imogen_community`.
+- Tools `promote-image` / `get-promote-status` with `hack/promote-image.sh`: `promote-image` submits
+  the staging→community copy with `az --no-wait` and returns immediately, then the agent polls
+  `get-promote-status` for the community version's provisioningState until Succeeded. Submitting
+  asynchronously keeps the gallery create from tripping the MCP client's 300 second timeout (which the
+  agent had narrated as success). Verified end-to-end: promoted `1.34.9` into `imogen_community`.
 - kagent agent wired and verified on a local kind cluster. The tool server runs in cluster
   over streamable HTTP (`Dockerfile`, `deploy/toolserver.yaml`), exposed to kagent through a
   `RemoteMCPServer`. An `Agent` plus an Azure OpenAI `ModelConfig` (gpt-4.1-mini) drives the
@@ -106,9 +108,9 @@ gate, and on approval promoted `1.35.6` to the community gallery. That closes th
 build → validate → approve → promote run driven by the agent.
 
 Next (production hardening): add `gc-eol-images` to retire end-of-life versions and close
-the lifecycle; model `promote-image` as submit-then-poll so it does not trip the MCP client's 300
-second timeout (the agent currently narrates a timed-out promote as success); let the daily watcher
-run the whole loop unattended; and tighten cleanup of the temporary Packer resource group on failures.
+the lifecycle; let the daily watcher run the whole loop unattended; and tighten cleanup of the
+temporary Packer resource group on failures. `promote-image` is now submit-then-poll (paired with
+`get-promote-status`) so it no longer trips the MCP client's 300 second timeout.
 
 Validation version skew. Driving the watcher end to end surfaced that the builder cluster's control
 plane (then v1.34.8) could not validate a 1.35.6 image: a node's kubelet may run up to two minors

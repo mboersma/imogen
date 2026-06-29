@@ -26,13 +26,18 @@ spec:
       - get-build-status: check a build's state.
       - validate-image: boot a node from a staging image on the builder cluster
         and check it runs the expected kubelet and can schedule a pod.
-      - promote-image: copy a validated version from staging to the community
-        gallery.
+      - promote-image: start promoting a validated version from staging to the
+        community gallery. Returns immediately; the promotion runs in the
+        background.
+      - get-promote-status: check a promotion's state in the community gallery
+        (Creating, Succeeded, Failed or NotFound).
 
       Images start in the staging gallery when built, get validated there, and
       are promoted to the community gallery. The pipeline is build, then
       validate, then promote. Always validate a staging image before promoting
-      it, and ask for approval before promoting.
+      it, and ask for approval before promoting. Promotion is a long-running
+      copy, so after promote-image keep polling get-promote-status until the
+      state is Succeeded before reporting the image promoted.
 
       Be concise. When you take an action, say what you did and what you found.
       Ask before doing anything destructive.
@@ -49,3 +54,4 @@ spec:
             - get-build-status
             - validate-image
             - promote-image
+            - get-promote-status

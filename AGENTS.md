@@ -40,7 +40,8 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 | `scale-builder-pool`        | Scale the CAPZ builder MachinePool 0↔N |
 | `attach-validation-nodepool`| Boot a node from a staging image (`image.computeGallery`) |
 | `run-smoke-tests`           | Assert node Ready + version + smoke checks |
-| `promote-image`             | Promote staging → community gallery (after approval) |
+| `promote-image`             | Start promoting staging → community gallery (after approval); returns immediately |
+| `get-promote-status`        | Report a promotion's state in the community gallery (Creating/Succeeded/Failed) |
 | `gc-eol-images`             | Remove EOL / stale image versions |
 | `notify`                    | Emit status / request approval |
 
@@ -131,8 +132,13 @@ NotFound). The `submit-build-job` and `get-build-status` MCP tools wrap the same
 
 `hack/promote-image.sh <flavor> <version>` copies a validated image version from the staging
 gallery to the community gallery, sourced from the staging version (both galleries live in the
-same resource group). The `promote-image` MCP tool wraps the same flow and is meant to run only
-after validation passes and approval is granted.
+same resource group). It blocks until the copy finishes, which suits a human running it directly.
+The `promote-image` MCP tool does the same copy but submits it with `az --no-wait` and returns
+immediately, because the gallery create can run for several minutes and a blocking tool call would
+trip the MCP client's timeout (the agent would then narrate a timeout as success). The agent polls
+`get-promote-status`, which reports the community version's provisioningState (Creating, Succeeded,
+Failed or NotFound), until it is Succeeded. Both run only after validation passes and approval is
+granted.
 
 ### Image validation
 
@@ -268,7 +274,7 @@ that runs `hack/reconcile.sh`. The script is thin on purpose: it posts a standin
 to the agent's A2A endpoint over JSON-RPC `message/stream` and lets the agent do the work. The agent
 calls `list-k8s-releases` and `list-gallery-versions`, computes which upstream versions are missing
 from the community gallery, and drives `submit-build-job` → `get-build-status` → `validate-image` →
-`promote-image` (parking at the human approval gate before promote). Tunables are env vars on the
+`promote-image` → `get-promote-status` (parking at the human approval gate before promote). Tunables are env vars on the
 CronJob: `IMOGEN_RECONCILE_FLAVORS`, `IMOGEN_RECONCILE_MINORS`, `IMOGEN_RECONCILE_MAX`,
 `IMOGEN_RECONCILE_TIMEOUT`. Because kagent tasks run server-side, the curl stream can disconnect
 while a long build runs; a human resubscribes (kagent UI or `tasks/resubscribe`) to approve promote.

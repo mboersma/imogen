@@ -75,9 +75,11 @@ type Promotion struct {
 	TargetRegions  []string // optional; defaults to the source region
 }
 
-// PromoteImageVersion creates the target gallery image version from the source
-// version. It blocks until the long-running create finishes.
-func PromoteImageVersion(ctx context.Context, p Promotion) error {
+// StartImageVersionPromotion begins creating the target gallery image version
+// from the source version and returns immediately (az --no-wait). The create is
+// a long-running operation that can exceed the MCP client timeout, so callers
+// submit here and poll ImageVersionProvisioningState instead of blocking.
+func StartImageVersionPromotion(ctx context.Context, p Promotion) error {
 	sourceID := fmt.Sprintf(
 		"/subscriptions/%s/resourceGroups/%s/providers/Microsoft.Compute/galleries/%s/images/%s/versions/%s",
 		p.SubscriptionID, p.ResourceGroup, p.SourceGallery, p.Definition, p.Version)
@@ -87,12 +89,38 @@ func PromoteImageVersion(ctx context.Context, p Promotion) error {
 		"--gallery-image-definition", p.Definition,
 		"--gallery-image-version", p.Version,
 		"--image-version", sourceID,
+		"--no-wait",
 	}
 	if len(p.TargetRegions) > 0 {
 		args = append(args, "--target-regions")
 		args = append(args, p.TargetRegions...)
 	}
 	return runJSON(ctx, nil, args...)
+}
+
+// ImageVersionProvisioningState returns the provisioningState of a gallery image
+// version, such as Creating, Succeeded or Failed, or "NotFound" if the version
+// does not exist yet. Used to poll a promotion started with --no-wait.
+func ImageVersionProvisioningState(ctx context.Context, resourceGroup, gallery, definition, version string) (string, error) {
+	args := []string{"sig", "image-version", "show",
+		"-g", resourceGroup, "-r", gallery, "-i", definition, "-e", version,
+		"--query", "provisioningState", "-o", "json"}
+	cmd := exec.CommandContext(ctx, "az", args...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := stderr.String()
+		if strings.Contains(msg, "was not found") || strings.Contains(msg, "ResourceNotFound") || strings.Contains(msg, "NotFound") {
+			return "NotFound", nil
+		}
+		return "", fmt.Errorf("az %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(msg))
+	}
+	var state string
+	if err := json.Unmarshal(stdout.Bytes(), &state); err != nil {
+		return "", fmt.Errorf("parsing provisioningState: %w", err)
+	}
+	return state, nil
 }
 
 func names(in []named) []string {

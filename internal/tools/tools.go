@@ -11,4 +11,5 @@ func Register(server *mcp.Server) {
 	registerGetBuildStatus(server)
 	registerValidateImage(server)
 	registerPromoteImage(server)
+	registerGetPromoteStatus(server)
 }

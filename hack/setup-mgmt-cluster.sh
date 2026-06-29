@@ -83,19 +83,30 @@ az role assignment create \
 # controllers authenticate to Azure with projected tokens, no secrets.
 create_fed_cred() {
   local name="$1" subject="$2"
-  if ! az identity federated-credential show --name "$name" --identity-name "$UAMI" -g "$RESOURCE_GROUP" -o none 2>/dev/null; then
-    echo "Creating federated credential $name"
-    az identity federated-credential create \
-      --name "$name" \
-      --identity-name "$UAMI" \
-      --resource-group "$RESOURCE_GROUP" \
-      --issuer "$OIDC_ISSUER" \
-      --subject "$subject" \
-      --audience api://AzureADTokenExchange \
-      -o none
-  else
-    echo "Federated credential $name already exists"
+  local existing
+  existing="$(az identity federated-credential show --name "$name" \
+    --identity-name "$UAMI" -g "$RESOURCE_GROUP" --query issuer -o tsv 2>/dev/null || true)"
+  if [[ "$existing" == "$OIDC_ISSUER" ]]; then
+    echo "Federated credential $name already up to date"
+    return
   fi
+  if [[ -n "$existing" ]]; then
+    # The OIDC issuer changes when the cluster is recreated, so refresh a stale
+    # credential rather than leaving it pointing at the deleted cluster.
+    echo "Updating federated credential $name (issuer changed)"
+    az identity federated-credential delete \
+      --name "$name" --identity-name "$UAMI" -g "$RESOURCE_GROUP" --yes -o none
+  else
+    echo "Creating federated credential $name"
+  fi
+  az identity federated-credential create \
+    --name "$name" \
+    --identity-name "$UAMI" \
+    --resource-group "$RESOURCE_GROUP" \
+    --issuer "$OIDC_ISSUER" \
+    --subject "$subject" \
+    --audience api://AzureADTokenExchange \
+    -o none
 }
 create_fed_cred imogen-capz-manager "system:serviceaccount:capz-system:capz-manager"
 create_fed_cred imogen-aso "system:serviceaccount:capz-system:azureserviceoperator-default"

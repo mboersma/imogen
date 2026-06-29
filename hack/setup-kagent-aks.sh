@@ -91,14 +91,21 @@ fi
 
 echo "Federating $TS_IDENTITY to the tool server and refresher service accounts"
 for sa in imogen-toolserver imogen-aoai-refresher; do
-  if ! az identity federated-credential show --name "$sa" \
-    --identity-name "$TS_IDENTITY" -g "$RESOURCE_GROUP" -o none 2>/dev/null; then
-    az identity federated-credential create --name "$sa" \
-      --identity-name "$TS_IDENTITY" -g "$RESOURCE_GROUP" \
-      --issuer "$OIDC_ISSUER" \
-      --subject "system:serviceaccount:${NAMESPACE}:${sa}" \
-      --audiences api://AzureADTokenExchange -o none
+  existing="$(az identity federated-credential show --name "$sa" \
+    --identity-name "$TS_IDENTITY" -g "$RESOURCE_GROUP" --query issuer -o tsv 2>/dev/null || true)"
+  if [[ "$existing" == "$OIDC_ISSUER" ]]; then
+    continue
   fi
+  if [[ -n "$existing" ]]; then
+    # Refresh a stale credential after a cluster rebuild changes the OIDC issuer.
+    az identity federated-credential delete --name "$sa" \
+      --identity-name "$TS_IDENTITY" -g "$RESOURCE_GROUP" --yes -o none
+  fi
+  az identity federated-credential create --name "$sa" \
+    --identity-name "$TS_IDENTITY" -g "$RESOURCE_GROUP" \
+    --issuer "$OIDC_ISSUER" \
+    --subject "system:serviceaccount:${NAMESPACE}:${sa}" \
+    --audiences api://AzureADTokenExchange -o none
 done
 
 echo "Installing kagent"

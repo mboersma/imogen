@@ -100,10 +100,16 @@ bug: the mgmt-side CAPI objects live in `default` but the tool server pod's name
 "should I keep waiting?" mid-build, so the reconcile prompt now tells it to poll on its own and only
 pause for the promote approval gate.
 
-Next: let the watcher drive the rest of the loop unattended (validate → approval-gated promote) on a
-freshly built staging image, add a `scale-builder-pool` tool so the pool returns to zero after a
-build without a manual `kubectl scale`, and tighten cleanup of the temporary Packer resource group on
-failures.
+The agent then drove the rest of the loop end to end: with the builder control plane recreated at a
+current 1.36 minor it validated the freshly built `1.35.6` staging image, paused at the human approval
+gate, and on approval promoted `1.35.6` to the community gallery. That closes the MVP: a full
+build → validate → approve → promote run driven by the agent.
+
+Next (production hardening): add a `scale-builder-pool` tool so the pool returns to zero after a build
+without a manual `kubectl scale`; add `gc-eol-images` to retire end-of-life versions and close the
+lifecycle; model `promote-image` as submit-then-poll so it does not trip the MCP client's 300 second
+timeout (the agent currently narrates a timed-out promote as success); let the daily watcher run the
+whole loop unattended; and tighten cleanup of the temporary Packer resource group on failures.
 
 Validation version skew. Driving the watcher end to end surfaced that the builder cluster's control
 plane (then v1.34.8) could not validate a 1.35.6 image: a node's kubelet may run up to two minors

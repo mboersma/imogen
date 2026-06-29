@@ -38,7 +38,7 @@ CLUSTER="${IMOGEN_BUILDER_CLUSTER:-imogen-builder}"
 # at the newest minor can validate that minor and the supported older ones from a
 # single cluster. Track the newest CAPI reference image version (the community
 # gallery capi-ubun2-* definitions), since the control plane boots from it.
-K8S_VERSION="${IMOGEN_BUILDER_K8S_VERSION:-v1.36.1}"
+K8S_VERSION="${IMOGEN_BUILDER_K8S_VERSION:-v1.36.2}"
 # Default to broadly available v2 sizes. Some subscriptions and regions restrict
 # older sizes (Standard_B2s, D2s_v3); imogen_require_sku below fails fast with the
 # available sizes if these are not offered. Override via IMOGEN_BUILDER_*_SIZE.

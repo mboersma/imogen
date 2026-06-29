@@ -7,6 +7,13 @@ kind: MachineDeployment
 metadata:
   name: __NAME__
   namespace: default
+  annotations:
+    # The validation worker is intentionally a different (older) minor than the
+    # builder control plane so one cluster can validate every supported minor.
+    # That is the normal mid-upgrade state, but CAPI's MachineSet preflight
+    # checks block it, so skip the version-skew checks for this MachineDeployment.
+    # CAPI propagates these top-level annotations to the generated MachineSet.
+    machineset.cluster.x-k8s.io/skip-preflight-checks: "KubeadmVersionSkew,KubernetesVersionSkew"
 spec:
   clusterName: __CLUSTER__
   replicas: 1

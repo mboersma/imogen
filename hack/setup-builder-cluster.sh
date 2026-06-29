@@ -32,7 +32,13 @@ LOCATION="${IMOGEN_MGMT_LOCATION:-${IMOGEN_LOCATION:-eastus2}}"
 MGMT_CLUSTER="${IMOGEN_MGMT_CLUSTER:-imogen-mgmt}"
 UAMI="${IMOGEN_CAPZ_IDENTITY:-imogen-capz}"
 CLUSTER="${IMOGEN_BUILDER_CLUSTER:-imogen-builder}"
-K8S_VERSION="${IMOGEN_BUILDER_K8S_VERSION:-v1.34.8}"
+# The builder cluster also validates images, so its control plane must be at the
+# newest Kubernetes minor in scope: a node (kubelet) may run up to two minors
+# behind the control plane (kube-apiserver) but never ahead, so a control plane
+# at the newest minor can validate that minor and the supported older ones from a
+# single cluster. Track the newest CAPI reference image version (the community
+# gallery capi-ubun2-* definitions), since the control plane boots from it.
+K8S_VERSION="${IMOGEN_BUILDER_K8S_VERSION:-v1.36.1}"
 # Default to broadly available v2 sizes. Some subscriptions and regions restrict
 # older sizes (Standard_B2s, D2s_v3); imogen_require_sku below fails fast with the
 # available sizes if these are not offered. Override via IMOGEN_BUILDER_*_SIZE.

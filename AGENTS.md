@@ -144,6 +144,17 @@ node without working CNI does not block deletion. Everything is torn down on exi
 `IMOGEN_VALIDATE_KEEP=1` is set. The script replicates the staging image to the builder region
 (`IMOGEN_BUILDER_LOCATION`) first if needed, since builds publish only to the gallery home region.
 
+The validation node runs the image's Kubernetes version, so the builder cluster's control plane must
+be at least that minor: a kubelet may run up to two minors behind the kube-apiserver but never ahead.
+The builder control plane therefore tracks the newest in-scope minor (`IMOGEN_BUILDER_K8S_VERSION`,
+default a 1.36 CAPI reference image), which lets a single cluster validate that minor and the
+supported older ones. CAPI's MachineSet preflight checks still block a worker whose minor differs from
+the control plane (the normal mid-upgrade state), so the validation MachineDeployment carries the
+`machineset.cluster.x-k8s.io/skip-preflight-checks: "KubeadmVersionSkew,KubernetesVersionSkew"`
+annotation, which CAPI propagates to the generated MachineSet. The smoke pod runs on the builder
+cluster in the `default` namespace (`IMOGEN_VALIDATE_POD_NAMESPACE`); pinning it matters in cluster,
+where kubectl would otherwise inherit the tool server pod's `kagent` namespace.
+
 ### Builder cluster (CAPZ)
 
 The durable home for builds and validation is a Cluster API (CAPZ) setup, all authenticated with
@@ -162,7 +173,12 @@ sizes are configurable (`IMOGEN_BUILDER_CP_SIZE`, `IMOGEN_BUILDER_NODE_SIZE`) an
 available v2 sizes; the script fails fast via `hack/lib.sh` `imogen_require_sku` if a size is not
 offered in the region, sets bounded node drain/detach timeouts so teardown is not blocked by
 deallocated nodes, and waits for the expected worker count. It also assigns the build managed
-identity to the worker VMSS so image-builder Jobs can authenticate through IMDS.
+identity to the worker VMSS so image-builder Jobs can authenticate through IMDS. The control plane
+boots from the CAPI community-gallery reference image for `IMOGEN_BUILDER_K8S_VERSION`, so that
+version must match an available reference image and should be the newest in-scope minor (see Image
+validation above). The builder cluster is ephemeral, so to move it to a newer minor recreate it
+(`teardown-builder.sh` then `setup-builder-cluster.sh`) rather than upgrading in place, since a
+control-plane upgrade can only step one minor at a time.
 `hack/scale-builder.sh <count>` scales the pool imperatively, down to 0 when idle.
 `hack/teardown-builder.sh` deletes the workload cluster, and with `--mgmt` the AKS cluster too. It
 waits a bounded time for graceful deletion, then forces cleanup (deleting the workload resource group

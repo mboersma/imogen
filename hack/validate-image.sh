@@ -37,6 +37,10 @@ GALLERY_LOCATION="${IMOGEN_LOCATION:-westus3}"
 CLUSTER="${IMOGEN_BUILDER_CLUSTER:-imogen-builder}"
 # Namespace the CAPI objects live in on the mgmt cluster (see run-build-job.sh).
 CAPI_NS="${IMOGEN_CAPI_NAMESPACE:-default}"
+# Namespace for the smoke pod on the builder workload cluster. In cluster kubectl
+# would otherwise inherit the tool server pod's namespace ("kagent"), which does
+# not exist on the builder cluster, so pin it explicitly.
+SMOKE_NS="${IMOGEN_VALIDATE_POD_NAMESPACE:-default}"
 BUILDER_LOCATION="${IMOGEN_BUILDER_LOCATION:-${IMOGEN_MGMT_LOCATION:-eastus2}}"
 NODE_SIZE="${IMOGEN_BUILDER_NODE_SIZE:-Standard_D2s_v3}"
 
@@ -71,7 +75,7 @@ cleanup() {
     return
   fi
   echo "Tearing down $NAME"
-  kubectl --kubeconfig "$WL_KUBECONFIG" delete pod "${NAME}-smoke" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl --kubeconfig "$WL_KUBECONFIG" delete pod "${NAME}-smoke" -n "$SMOKE_NS" --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete machinedeployment "$NAME" -n "$CAPI_NS" --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete kubeadmconfigtemplate "$NAME" -n "$CAPI_NS" --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete azuremachinetemplate "$NAME" -n "$CAPI_NS" --ignore-not-found >/dev/null 2>&1 || true
@@ -128,14 +132,14 @@ fi
 echo "Running a smoke pod on $NODE"
 # hostNetwork so the smoke does not wait on the CNI initializing on the fresh
 # node; we are validating the image's kubelet and containerd, not pod networking.
-kubectl --kubeconfig "$WL_KUBECONFIG" run "${NAME}-smoke" \
+kubectl --kubeconfig "$WL_KUBECONFIG" run "${NAME}-smoke" -n "$SMOKE_NS" \
   --image=registry.k8s.io/busybox:1.27 --restart=Never \
   --overrides="{\"spec\":{\"nodeName\":\"${NODE}\",\"hostNetwork\":true,\"tolerations\":[{\"operator\":\"Exists\"}]}}" \
   --command -- /bin/sh -c 'echo smoke-ok'
 if ! kubectl --kubeconfig "$WL_KUBECONFIG" wait --for=jsonpath='{.status.phase}'=Succeeded \
-  "pod/${NAME}-smoke" --timeout=120s; then
+  "pod/${NAME}-smoke" -n "$SMOKE_NS" --timeout=120s; then
   echo "FAIL: smoke pod did not succeed" >&2
-  kubectl --kubeconfig "$WL_KUBECONFIG" describe pod "${NAME}-smoke" >&2 || true
+  kubectl --kubeconfig "$WL_KUBECONFIG" describe pod "${NAME}-smoke" -n "$SMOKE_NS" >&2 || true
   exit 1
 fi
 

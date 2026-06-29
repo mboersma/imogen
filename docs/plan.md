@@ -90,16 +90,33 @@ capacity restrictions: `Standard_B4s_v2` became restricted mid-build, so the poo
 
 Autonomous release watcher. `deploy/release-watcher.yaml` is a daily CronJob that runs
 `hack/reconcile.sh`, which posts a standing reconcile prompt to the agent over A2A and lets the agent
-do the gap analysis and run the pipeline itself. Verified live: the watcher fired, the agent called
-`list-k8s-releases` and `list-gallery-versions`, found `ubuntu-2404` versions missing from the
-community gallery, called `submit-build-job`, scaled the builder pool to one worker, and the build
-Job started on the booted node. This surfaced a namespace bug: the mgmt-side CAPI objects live in
-`default` but the tool server pod's namespace is `kagent`, so `run-build-job.sh` and
-`validate-image.sh` now name the CAPI namespace explicitly (`IMOGEN_CAPI_NAMESPACE`).
+do the gap analysis and run the pipeline itself. Verified live end to end: the watcher fired, the
+agent called `list-k8s-releases` and `list-gallery-versions`, found `ubuntu-2404` versions missing
+from the community gallery, called `submit-build-job`, scaled the builder pool to one worker, and the
+build Job ran to completion and published `1.35.6` to `imogen_staging`. This surfaced a namespace
+bug: the mgmt-side CAPI objects live in `default` but the tool server pod's namespace is `kagent`, so
+`run-build-job.sh` and `validate-image.sh` now name the CAPI namespace explicitly
+(`IMOGEN_CAPI_NAMESPACE`). It also surfaced an autonomy gap: on the first run the agent stopped to ask
+"should I keep waiting?" mid-build, so the reconcile prompt now tells it to poll on its own and only
+pause for the promote approval gate.
 
-Next: let the watcher drive a full unattended build → validate → promote (parking at the approval
-gate), add a `scale-builder-pool` tool to return the pool to zero after a build, and tighten cleanup
-of the temporary Packer resource group on failures.
+Next: let the watcher drive the rest of the loop unattended (validate → approval-gated promote) on a
+freshly built staging image, add a `scale-builder-pool` tool so the pool returns to zero after a
+build without a manual `kubectl scale`, and tighten cleanup of the temporary Packer resource group on
+failures.
+
+Validation version skew. Driving the watcher end to end surfaced that the builder cluster's control
+plane (then v1.34.8) could not validate a 1.35.6 image: a node's kubelet may run up to two minors
+behind the kube-apiserver but never ahead, so a worker newer than the control plane fails CAPI's
+version-skew preflight. The fix is to keep the builder/validation control plane at the newest in-scope
+minor; from there a single cluster validates that minor and the supported older ones. The builder is
+ephemeral, so we recreate it at the target version (default `IMOGEN_BUILDER_K8S_VERSION` is now a 1.36
+CAPI reference image) rather than upgrading in place, since a control-plane upgrade can only step one
+minor at a time. CAPI's MachineSet preflight then blocks even an older worker (its `KubeadmVersionSkew`
+check wants the worker to match the control-plane minor exactly), so the validation MachineDeployment
+carries `machineset.cluster.x-k8s.io/skip-preflight-checks`. With the v1.36.1 control plane in place,
+the agent validated and promoted `1.35.6` to the community gallery end to end through the approval
+gate.
 
 ## Goals (restated)
 1. **Functional:** Keep the Community Gallery CAPZ reference images current automatically.

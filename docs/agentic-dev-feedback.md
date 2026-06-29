@@ -52,6 +52,16 @@ progress streaming while a long tool runs.
   sidesteps the missing async semantics, but every framework user has to reinvent it. First-class async
   tools with status would remove that boilerplate.
 
+- **The agent reports success after a timeout.** `promote-image` copies a gallery image version across
+  galleries and can run past five minutes. The MCP client gave up at exactly 300 seconds with "Timed
+  out while waiting for response ... Do not retry this tool", but the underlying `az` operation kept
+  running server-side and finished fine (the version reached `Succeeded` in the community gallery a
+  minute later). The agent then told the user "I have promoted ... 1.35.6", treating the timeout error
+  as success. So a fixed client-side timeout both fires too early for legitimately slow cloud
+  operations and leaves the agent guessing at the real outcome. This is the same "submit then poll"
+  gap as builds, now for promote, plus a reminder that a timed-out tool result should not be narrated
+  as success.
+
 ### Unattended runs stop to ask
 We added a daily release-watcher CronJob that posts a reconcile prompt to the agent over A2A and lets
 the agent compute the gap and run the pipeline. On the first live run the agent submitted the build,
@@ -103,9 +113,12 @@ A subtler version of the same problem: tools that shell out to `kubectl` from in
 in the tool server pod's own namespace (`kagent`), but the objects they act on (the CAPI
 `MachinePool` and validation `MachineDeployment`) live in `default`. On the host the scripts worked
 because the developer's kubeconfig context defaults to `default`; in cluster the same `kubectl get`
-and `kubectl scale` silently targeted the wrong namespace and failed with "not found". The fix is to
-name the namespace explicitly on every call, but it is an easy trap because the host and in-cluster
-behavior diverge invisibly.
+and `kubectl scale` silently targeted the wrong namespace and failed with "not found". The same trap
+bit a second time on a different cluster: the validation smoke pod runs through the builder
+*workload* cluster's kubeconfig, yet in cluster `kubectl run` still resolved to the tool server pod's
+`kagent` namespace (absent on the builder cluster) and failed, even though the host run passed. The
+fix is to name the namespace explicitly on every call, but it is an easy trap because the host and
+in-cluster behavior diverge invisibly.
 
 - **Idea:** for shell-out tools, document (or template) the in-cluster vs. host environment
   differences, especially namespace and kubeconfig defaults, since the failure only shows up once the

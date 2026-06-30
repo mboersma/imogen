@@ -35,6 +35,14 @@ spec:
               value: ":8080"
             - name: IMOGEN_IN_CLUSTER
               value: "1"
+            # Optional Slack/Teams webhook for the notify tool. When the
+            # imogen-notify Secret is absent, notify falls back to log-only.
+            - name: IMOGEN_NOTIFY_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: imogen-notify
+                  key: webhook-url
+                  optional: true
           ports:
             - name: http
               containerPort: 8080

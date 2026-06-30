@@ -66,11 +66,10 @@ failure and move on. Keep polling any long-running tool on your own; do NOT end 
 is still working."
 else
   PROMOTE_STEP="3. For each in-scope version that is in staging but NOT yet in the community gallery: \
-it is already built, so call validate-image on it. If validation passes, request human approval and \
-then call promote-image once approved (promote is the only step that needs a human). After \
-promote-image, keep polling get-promote-status until it reports Succeeded before treating the version \
-as promoted. Keep polling any long-running tool on your own; do NOT end your turn while one is still \
-working."
+it is already built, so call validate-image on it. If validation passes, call notify with level=approval \
+to request that a human approve promoting it, but do NOT promote this run: no human is available to approve \
+right now. After validation, keep polling any long-running tool on your own; do NOT end your turn while one \
+is still working."
 fi
 
 PROMPT="You are the imogen image reconciler. Reconcile the Azure community gallery \
@@ -91,6 +90,9 @@ ${BUILD_STEP}
 6. Call gc-eol-images as a dry run (apply=false) for the community gallery to list any minors past their \
 upstream end-of-life grace period. Report them as retirement candidates, but do NOT delete anything: retirement \
 needs human approval, so leave apply=true for an operator.
+7. Finally, call notify once with a short summary of what you found and did this run (level=info). If \
+anything needs a human, such as retirement candidates to approve or a step you could not complete, also call \
+notify with level=approval describing exactly what you need approved.
 
 Report a short summary of what you found and what you did."
 

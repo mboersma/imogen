@@ -44,7 +44,7 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 | `get-promote-status`        | Report a promotion's state in the community gallery (Creating/Succeeded/Failed) |
 | `gc-eol-images`             | Report (dry run) or delete image versions whose minor is past its upstream EOL grace; `apply=true` to delete |
 | `get-audit-log`            | Return the most recent tool actions (tool, input, outcome, error, duration) for reporting and diagnosis |
-| `notify`                    | Emit status / request approval |
+| `notify`                    | Push a status update or approval request to a configured Slack/Teams webhook (log-only when unset) |
 
 ## Supported image flavors (default)
 
@@ -121,6 +121,19 @@ events are also kept in an in-memory ring buffer (size `IMOGEN_AUDIT_BUFFER_SIZE
 which the `get-audit-log` tool reads back so the agent can report what the system has been doing or
 diagnose a failed run without leaving the conversation. `get-audit-log` is itself unaudited, so
 reading the log does not flood it.
+
+### Notifications (notify)
+
+The `notify` tool pushes a status update or approval request out to a human channel, so the
+unattended release watcher's progress and its approval requests are visible when no one is watching
+the A2A stream. When `IMOGEN_NOTIFY_WEBHOOK_URL` is set, notify POSTs the message to that webhook in
+the Slack/Teams incoming-webhook shape (`{"text": ...}`); when it is unset, notify falls back to the
+log only (the message is still captured in the audit log, since notify is audited). The webhook URL
+is injected from the optional `imogen-notify` Secret (`webhook-url` key) in `deploy/toolserver-aks.yaml`,
+so it stays out of the repo. notify never gates the pipeline: the real approval gate stays in the
+agent's system message, `level=approval` only surfaces the request, and a delivery failure is reported
+(`delivered=false`) but never fatal. The release watcher's reconcile prompt ends every run with a
+`notify` summary and raises a `level=approval` notification when a human is needed.
 
 ### Azure foundation
 

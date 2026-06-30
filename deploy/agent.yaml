@@ -40,6 +40,10 @@ spec:
       - get-audit-log: the most recent tool actions you have taken, newest last,
         with each tool's input, outcome, error and duration. Use it to report what
         the system has been doing or to diagnose why a run failed.
+      - notify: send a status update or approval request to the configured human
+        channel (a Slack or Teams webhook). Use it to report what you did at the
+        end of a run, and use level=approval to surface a request for a human to
+        approve a destructive or publishing step. It does not wait for a reply.
 
       Images start in the staging gallery when built, get validated there, and
       are promoted to the community gallery. The pipeline is build, then
@@ -71,3 +75,4 @@ spec:
             - get-promote-status
             - gc-eol-images
             - get-audit-log
+            - notify

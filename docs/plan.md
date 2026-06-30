@@ -136,6 +136,15 @@ in-memory ring buffer (`IMOGEN_AUDIT_BUFFER_SIZE`, default 200) that the `get-au
 back, so the agent can report what the system has done or diagnose a failed run on demand. This
 delivers the MVP's "basic observability/audit log of every tool action."
 
+Notifications (done). The `notify` tool pushes a status update or approval request out to a human
+channel so the unattended watcher is visible when no one is watching the A2A stream. When
+`IMOGEN_NOTIFY_WEBHOOK_URL` is set (injected from the optional `imogen-notify` Secret), notify POSTs
+the message to that Slack/Teams webhook in the incoming-webhook shape (`{"text": ...}`); otherwise it
+falls back to the log only, with the message still captured in the audit log. It never gates the
+pipeline: `level=approval` only surfaces a request, and a delivery failure is reported but not fatal.
+The reconcile prompt ends each watcher run with a `notify` summary and raises a `level=approval`
+notification when a human is needed.
+
 Image retirement is in place. `gc-eol-images` closes the lifecycle with a deliberately conservative
 policy: downstream projects (cloud-provider-azure, cluster-autoscaler) keep testing against
 out-of-support Kubernetes releases and pin specific patches, so the tool retires whole minors only,

@@ -73,7 +73,9 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
   credentials.
 - **Prefer ecosystem tooling** (Helm, clusterctl, az, kubectl, image-builder make targets) over
   bespoke reimplementations.
-- **Human-approval gate** stays in front of `promote-image` until explicitly automated.
+- **Human-approval gate** stays in front of `promote-image` for interactive runs. The unattended
+  release-watcher is the one explicitly-automated exception: it auto-promotes validated images
+  (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`). Retirement (`gc-eol-images apply=true`) is never automated.
 - Commit messages: single line; no `Co-authored-by` trailer.
 
 ## Repository layout
@@ -298,10 +300,16 @@ that runs `hack/reconcile.sh`. The script is thin on purpose: it posts a standin
 to the agent's A2A endpoint over JSON-RPC `message/stream` and lets the agent do the work. The agent
 calls `list-k8s-releases` and `list-gallery-versions`, computes which upstream versions are missing
 from the community gallery, and drives `submit-build-job` → `get-build-status` → `validate-image` →
-`promote-image` → `get-promote-status` (parking at the human approval gate before promote). Tunables are env vars on the
-CronJob: `IMOGEN_RECONCILE_FLAVORS`, `IMOGEN_RECONCILE_MINORS`, `IMOGEN_RECONCILE_MAX`,
-`IMOGEN_RECONCILE_TIMEOUT`. Because kagent tasks run server-side, the curl stream can disconnect
-while a long build runs; a human resubscribes (kagent UI or `tasks/resubscribe`) to approve promote.
+`promote-image` → `get-promote-status`. The watcher runs unattended: because no human is present,
+the reconcile prompt authorizes the agent to promote a validated image without approval
+(`IMOGEN_RECONCILE_AUTO_PROMOTE=1`). Interactive runs through the kagent UI still hit the approval
+gate in the agent's system message, and `gc-eol-images` is only ever a dry run here. Because kagent
+runs the task server-side and a single SSE stream can drop while a long build runs, the script does
+not depend on one stream: when the stream ends before the task reaches a terminal state it
+resubscribes (`tasks/resubscribe`) to the same task and keeps following it, until the task completes
+or `IMOGEN_RECONCILE_TIMEOUT` (default 5400s) passes. Other tunables are env vars on the CronJob:
+`IMOGEN_RECONCILE_FLAVORS`, `IMOGEN_RECONCILE_MINORS`, `IMOGEN_RECONCILE_MAX`,
+`IMOGEN_RECONCILE_AUTO_PROMOTE`.
 
 The mgmt-side CAPI objects (the builder `MachinePool`, validation `MachineDeployment`) live in the
 `default` namespace, so `run-build-job.sh` and `validate-image.sh` name that namespace explicitly

@@ -107,9 +107,19 @@ current 1.36 minor it validated the freshly built `1.35.6` staging image, paused
 gate, and on approval promoted `1.35.6` to the community gallery. That closes the MVP: a full
 build → validate → approve → promote run driven by the agent.
 
-Next (production hardening): let the daily watcher run the whole loop unattended; and tighten cleanup
-of the temporary Packer resource group on failures. `promote-image` is now submit-then-poll (paired
-with `get-promote-status`) so it no longer trips the MCP client's 300 second timeout.
+Unattended watcher loop (done). The daily watcher now runs the whole pipeline without a human.
+`hack/reconcile.sh` no longer depends on a single SSE stream surviving a long build: it follows the
+agent's A2A task and, when the stream drops before the task reaches a terminal state, resubscribes
+(`tasks/resubscribe`) to the same task and keeps following it until the task completes or
+`IMOGEN_RECONCILE_TIMEOUT` (default 5400s) passes. The promote approval gate is the one explicitly
+automated exception in this context: with no human watching, the reconcile prompt authorizes the
+agent to promote a validated image without asking (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`, default), while
+interactive runs through the kagent UI still hit the gate in the agent's system message. Retirement
+is never automated; the watcher only ever reports `gc-eol-images` candidates.
+
+Still open (production hardening): tighten cleanup of the temporary Packer resource group on build
+failures. `promote-image` is already submit-then-poll (paired with `get-promote-status`) so it no
+longer trips the MCP client's 300 second timeout.
 
 Image retirement is in place. `gc-eol-images` closes the lifecycle with a deliberately conservative
 policy: downstream projects (cloud-provider-azure, cluster-autoscaler) keep testing against

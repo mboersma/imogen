@@ -25,13 +25,13 @@ const defaultAuditBufferSize = 200
 
 // auditEvent is one recorded tool action.
 type auditEvent struct {
-	Seq        int64           `json:"seq"`
-	Tool       string          `json:"tool"`
-	Time       time.Time       `json:"time"`
-	DurationMs int64           `json:"durationMs"`
-	Success    bool            `json:"success"`
-	Error      string          `json:"error,omitempty"`
-	Input      json.RawMessage `json:"input,omitempty"`
+	Seq        int64          `json:"seq"`
+	Tool       string         `json:"tool"`
+	Time       time.Time      `json:"time"`
+	DurationMs int64          `json:"durationMs"`
+	Success    bool           `json:"success"`
+	Error      string         `json:"error,omitempty"`
+	Input      map[string]any `json:"input,omitempty"`
 }
 
 // auditLog is a fixed-size, thread-safe ring buffer of recent tool actions.
@@ -72,7 +72,9 @@ func (a *auditLog) record(e auditEvent) {
 		attrs = append(attrs, slog.String("error", e.Error))
 	}
 	if len(e.Input) > 0 {
-		attrs = append(attrs, slog.String("input", string(e.Input)))
+		if raw, err := json.Marshal(e.Input); err == nil {
+			attrs = append(attrs, slog.String("input", string(raw)))
+		}
 	}
 	if e.Success {
 		a.logger.Info("tool action", attrs...)
@@ -149,7 +151,10 @@ func auditedTool[In, Out any](
 			Success:    err == nil,
 		}
 		if raw, mErr := json.Marshal(in); mErr == nil {
-			e.Input = raw
+			var m map[string]any
+			if json.Unmarshal(raw, &m) == nil {
+				e.Input = m
+			}
 		}
 		if err != nil {
 			e.Error = firstLine(err.Error())

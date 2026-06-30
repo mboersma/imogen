@@ -62,14 +62,17 @@ func TestAuditedToolRecordsCalls(t *testing.T) {
 	if !ok.Success || ok.Error != "" {
 		t.Errorf("first call should be a success: %+v", ok)
 	}
-	if string(ok.Input) != `{}` {
-		t.Errorf("input should be captured as JSON, got %q", ok.Input)
+	if len(ok.Input) != 0 {
+		t.Errorf("empty input should record no fields, got %v", ok.Input)
 	}
 	if bad.Success {
 		t.Errorf("second call should be a failure: %+v", bad)
 	}
 	if bad.Error != "boom" {
 		t.Errorf("error should be trimmed to its first line, got %q", bad.Error)
+	}
+	if v, _ := bad.Input["fail"].(bool); !v {
+		t.Errorf("input should capture fail=true, got %v", bad.Input)
 	}
 	if bad.Seq <= ok.Seq {
 		t.Errorf("sequence should increase: %d then %d", ok.Seq, bad.Seq)

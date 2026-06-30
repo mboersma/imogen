@@ -42,7 +42,7 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 | `run-smoke-tests`           | Assert node Ready + version + smoke checks |
 | `promote-image`             | Start promoting staging → community gallery (after approval); returns immediately |
 | `get-promote-status`        | Report a promotion's state in the community gallery (Creating/Succeeded/Failed) |
-| `gc-eol-images`             | Remove EOL / stale image versions |
+| `gc-eol-images`             | Report (dry run) or delete EOL / superseded image versions; `apply=true` to delete |
 | `notify`                    | Emit status / request approval |
 
 ## Supported image flavors (default)
@@ -139,6 +139,18 @@ trip the MCP client's timeout (the agent would then narrate a timeout as success
 `get-promote-status`, which reports the community version's provisioningState (Creating, Succeeded,
 Failed or NotFound), until it is Succeeded. Both run only after validation passes and approval is
 granted.
+
+### Image retirement (garbage collection)
+
+`hack/gc-eol-images.sh [flavor] [--apply]` retires image versions that have aged out: a version is
+end of life when its Kubernetes minor is older than the most recent `IMOGEN_GC_MINORS` minors
+upstream (default 3), and within an in-scope minor any patch below the highest one present is
+superseded. It defaults to a dry run that only lists the candidates, and deletes only with `--apply`
+(or `IMOGEN_GC_APPLY=1`). `IMOGEN_GC_STAGE` picks the staging or community gallery (default
+community). The `gc-eol-images` MCP tool applies the same policy: it computes the in-scope minors
+from `list-k8s-releases`, classifies each gallery version, and returns the candidates; `apply=true`
+deletes them. Retirement is destructive, so the agent runs a dry run first and asks for approval
+before applying, and the release-watcher only ever reports candidates.
 
 ### Image validation
 

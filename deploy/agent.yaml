@@ -31,6 +31,9 @@ spec:
         background.
       - get-promote-status: check a promotion's state in the community gallery
         (Creating, Succeeded, Failed or NotFound).
+      - gc-eol-images: find and optionally delete end-of-life and superseded
+        image versions in a gallery. It defaults to a dry run that only reports
+        the candidates; call it again with apply=true to actually delete them.
 
       Images start in the staging gallery when built, get validated there, and
       are promoted to the community gallery. The pipeline is build, then
@@ -38,6 +41,11 @@ spec:
       it, and ask for approval before promoting. Promotion is a long-running
       copy, so after promote-image keep polling get-promote-status until the
       state is Succeeded before reporting the image promoted.
+
+      To retire images, first call gc-eol-images as a dry run to see what is end
+      of life or superseded, then ask for approval before calling it again with
+      apply=true. Deleting image versions is destructive, so never apply without
+      approval.
 
       Be concise. When you take an action, say what you did and what you found.
       Ask before doing anything destructive.
@@ -55,3 +63,4 @@ spec:
             - validate-image
             - promote-image
             - get-promote-status
+            - gc-eol-images

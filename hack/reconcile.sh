@@ -60,7 +60,10 @@ promote-image once approved (promote is the only step that needs a human). After
 keep polling get-promote-status until it reports Succeeded before treating the version as promoted. \
 Keep polling any long-running tool on your own; do NOT end your turn while one is still working.
 ${BUILD_STEP}
-5. If every in-scope version is already in the community gallery, do nothing and say so.
+5. If every in-scope version is already in the community gallery, say so.
+6. Call gc-eol-images as a dry run (apply=false) for the community gallery to list any end-of-life or \
+superseded versions. Report them as retirement candidates, but do NOT delete anything: retirement \
+needs human approval, so leave apply=true for an operator.
 
 Report a short summary of what you found and what you did."
 

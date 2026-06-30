@@ -12,4 +12,5 @@ func Register(server *mcp.Server) {
 	registerValidateImage(server)
 	registerPromoteImage(server)
 	registerGetPromoteStatus(server)
+	registerGcEolImages(server)
 }

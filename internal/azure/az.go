@@ -123,6 +123,13 @@ func ImageVersionProvisioningState(ctx context.Context, resourceGroup, gallery, 
 	return state, nil
 }
 
+// DeleteImageVersion deletes one image version from a gallery image definition.
+// Used by gc-eol-images to retire end-of-life and superseded versions.
+func DeleteImageVersion(ctx context.Context, resourceGroup, gallery, definition, version string) error {
+	return runJSON(ctx, nil, "sig", "image-version", "delete",
+		"-g", resourceGroup, "-r", gallery, "-i", definition, "-e", version)
+}
+
 func names(in []named) []string {
 	out := make([]string, len(in))
 	for i, n := range in {

@@ -49,6 +49,7 @@ CLIENT_ID="${IMOGEN_BUILDER_CLIENT_ID:-$(az identity show -g "$RESOURCE_GROUP" -
 
 TARGET="build-azure-sig-${FLAVOR}"
 NAME="imogen-build-${FLAVOR}-${SIG_VERSION//./-}"
+BUILD_TS="$(date -u +%s)"
 PACKER_FLAGS="--var sig_image_version=${SIG_VERSION} --var kubernetes_semver=${SEMVER} --var kubernetes_series=${SERIES} --var kubernetes_deb_version=${SIG_VERSION}-1.1 --var kubernetes_rpm_version=${SIG_VERSION}"
 
 # Machine pool operations are on the management cluster; on a workstation select
@@ -66,6 +67,11 @@ fi
 WL_KUBECONFIG="$(imogen_builder_kubeconfig)"
 trap 'rm -f "$WL_KUBECONFIG"' EXIT
 
+# Sweep any temporary build resource groups leaked by an earlier hard failure
+# before starting a new build. Age-guarded and imogen-scoped, so it never touches
+# a running build or another tenant's Packer groups.
+"$DIR/hack/gc-build-rgs.sh" --apply || echo "warning: build-rg sweep failed, continuing" >&2
+
 echo "Applying build Job $NAME (target $TARGET) to $CLUSTER"
 sed \
   -e "s|__NAME__|${NAME}|g" \
@@ -78,6 +84,8 @@ sed \
   -e "s|__RESOURCE_GROUP__|${RESOURCE_GROUP}|g" \
   -e "s|__GALLERY__|${STAGING_GALLERY}|g" \
   -e "s|__PACKER_FLAGS__|${PACKER_FLAGS}|g" \
+  -e "s|__BUILD_TAG__|${NAME}|g" \
+  -e "s|__BUILD_TS__|${BUILD_TS}|g" \
   "$DIR/deploy/build-job.yaml" | kubectl --kubeconfig "$WL_KUBECONFIG" apply -f - >/dev/null
 
 echo "$NAME"

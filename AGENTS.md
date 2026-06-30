@@ -130,6 +130,16 @@ below). `hack/run-build-job.sh` applies `deploy/build-job.yaml` and returns imme
 Job name. `hack/build-status.sh <job>` reports the Job state (Pending, Running, Succeeded, Failed or
 NotFound). The `submit-build-job` and `get-build-status` MCP tools wrap the same two scripts.
 
+Packer builds in a temporary resource group it creates and, on success or a graceful failure,
+deletes itself. A hard failure (the pod killed, the node deallocated, an activeDeadline timeout) can
+kill Packer before it cleans up, leaking that group. To clean those up safely in this shared
+subscription, the build Job tags Packer's `azure_tags` with an `imogen-build` marker (a `jq` patch of
+`packer.json` before `make`), and `hack/gc-build-rgs.sh` deletes only groups that carry that marker,
+are named like a Packer temp group, and are older than `IMOGEN_BUILD_RG_TTL` (default 3h, well beyond
+any real build) so a running build is never touched. It defaults to a dry run; `--apply` (or
+`IMOGEN_BUILD_RG_APPLY=1`) deletes. `hack/run-build-job.sh` runs the sweep with `--apply` before each
+build, so a leak from one run is collected on the next.
+
 ### Image promotion
 
 `hack/promote-image.sh <flavor> <version>` copies a validated image version from the staging

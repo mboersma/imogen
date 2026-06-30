@@ -117,9 +117,16 @@ agent to promote a validated image without asking (`IMOGEN_RECONCILE_AUTO_PROMOT
 interactive runs through the kagent UI still hit the gate in the agent's system message. Retirement
 is never automated; the watcher only ever reports `gc-eol-images` candidates.
 
-Still open (production hardening): tighten cleanup of the temporary Packer resource group on build
-failures. `promote-image` is already submit-then-poll (paired with `get-promote-status`) so it no
-longer trips the MCP client's 300 second timeout.
+Temporary build resource group cleanup (done). Packer builds in a temporary resource group it
+creates and deletes itself on success or a graceful failure, but a hard failure (the build pod
+killed, the node deallocated, an activeDeadline timeout) can leak it. In this shared subscription we
+cannot blindly delete `pkr-Resource-Group-*` groups, so the build Job now tags Packer's `azure_tags`
+with an `imogen-build` marker (a `jq` patch of `packer.json` before `make`) and `hack/gc-build-rgs.sh`
+deletes only groups carrying that marker, named like a Packer temp group, and older than
+`IMOGEN_BUILD_RG_TTL` (default 3h, beyond any real build) so a running build is never disturbed. It is
+a dry run by default; `--apply` deletes. `hack/run-build-job.sh` runs the sweep before each build, so
+a leak from one run is collected on the next. `promote-image` is already submit-then-poll (paired with
+`get-promote-status`) so it no longer trips the MCP client's 300 second timeout.
 
 Image retirement is in place. `gc-eol-images` closes the lifecycle with a deliberately conservative
 policy: downstream projects (cloud-provider-azure, cluster-autoscaler) keep testing against

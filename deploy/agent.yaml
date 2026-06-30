@@ -37,6 +37,9 @@ spec:
         individual patches, since downstream projects pin specific patches. It
         defaults to a dry run that only reports the candidates; call it again with
         apply=true to actually delete them.
+      - get-audit-log: the most recent tool actions you have taken, newest last,
+        with each tool's input, outcome, error and duration. Use it to report what
+        the system has been doing or to diagnose why a run failed.
 
       Images start in the staging gallery when built, get validated there, and
       are promoted to the community gallery. The pipeline is build, then
@@ -67,3 +70,4 @@ spec:
             - promote-image
             - get-promote-status
             - gc-eol-images
+            - get-audit-log

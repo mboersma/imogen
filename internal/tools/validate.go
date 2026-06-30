@@ -32,7 +32,7 @@ type validateImageOutput struct {
 }
 
 func registerValidateImage(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	auditedTool(server, &mcp.Tool{
 		Name:        "validate-image",
 		Description: "Validate a staging gallery image by booting a node from it on the builder cluster, checking the kubelet version and runtime, and running a smoke pod. Tears the node down when done. Takes a few minutes.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in validateImageInput) (*mcp.CallToolResult, validateImageOutput, error) {

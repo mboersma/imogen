@@ -33,7 +33,7 @@ type promoteImageOutput struct {
 }
 
 func registerPromoteImage(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	auditedTool(server, &mcp.Tool{
 		Name:        "promote-image",
 		Description: "Start promoting a validated image version from the staging gallery to the community gallery. Call only after validation passes and approval is granted. Returns immediately; poll get-promote-status until the state is Succeeded.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in promoteImageInput) (*mcp.CallToolResult, promoteImageOutput, error) {
@@ -93,7 +93,7 @@ type getPromoteStatusOutput struct {
 }
 
 func registerGetPromoteStatus(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	auditedTool(server, &mcp.Tool{
 		Name:        "get-promote-status",
 		Description: "Report the state of a promotion in the community gallery: Creating, Succeeded, Failed or NotFound. Poll this after promote-image until the state is Succeeded.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getPromoteStatusInput) (*mcp.CallToolResult, getPromoteStatusOutput, error) {

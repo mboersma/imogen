@@ -43,6 +43,7 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 | `promote-image`             | Start promoting staging → community gallery (after approval); returns immediately |
 | `get-promote-status`        | Report a promotion's state in the community gallery (Creating/Succeeded/Failed) |
 | `gc-eol-images`             | Report (dry run) or delete image versions whose minor is past its upstream EOL grace; `apply=true` to delete |
+| `get-audit-log`            | Return the most recent tool actions (tool, input, outcome, error, duration) for reporting and diagnosis |
 | `notify`                    | Emit status / request approval |
 
 ## Supported image flavors (default)
@@ -108,6 +109,18 @@ Azure Linux 4 will be added once it is officially released (image-builder curren
 Code is Go. The MCP tool server lives in `cmd/imogen-toolserver`; tools are added in
 `internal/tools`. Build and test with `make build` and `make test`; run the server locally with
 `make run`.
+
+### Observability and audit log
+
+Every tool call is audited. `internal/tools/audit.go` wraps each tool with `auditedTool` (a drop-in
+for `mcp.AddTool`) so that on every call it records the tool name, the input arguments, success or
+failure, the error, and the duration. Each event is emitted to stderr as a structured JSON line, so
+it lands in the pod logs and flows to Azure Monitor like any other container log. stderr is used
+rather than stdout so audit output never corrupts the stdio MCP transport in local runs. The same
+events are also kept in an in-memory ring buffer (size `IMOGEN_AUDIT_BUFFER_SIZE`, default 200),
+which the `get-audit-log` tool reads back so the agent can report what the system has been doing or
+diagnose a failed run without leaving the conversation. `get-audit-log` is itself unaudited, so
+reading the log does not flood it.
 
 ### Azure foundation
 

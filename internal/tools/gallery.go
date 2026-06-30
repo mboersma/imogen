@@ -29,7 +29,7 @@ type listGalleryVersionsOutput struct {
 }
 
 func registerListGalleryVersions(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	auditedTool(server, &mcp.Tool{
 		Name:        "list-gallery-versions",
 		Description: "List the image versions present in an Azure compute gallery, by image definition.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listGalleryVersionsInput) (*mcp.CallToolResult, listGalleryVersionsOutput, error) {

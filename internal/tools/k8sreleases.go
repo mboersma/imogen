@@ -16,7 +16,7 @@ type listK8sReleasesOutput struct {
 }
 
 func registerListK8sReleases(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	auditedTool(server, &mcp.Tool{
 		Name:        "list-k8s-releases",
 		Description: "List the latest stable patch release for recent Kubernetes minor versions.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listK8sReleasesInput) (*mcp.CallToolResult, listK8sReleasesOutput, error) {

@@ -49,7 +49,7 @@ type gcEolImagesOutput struct {
 }
 
 func registerGcEolImages(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	auditedTool(server, &mcp.Tool{
 		Name:        "gc-eol-images",
 		Description: "Find and optionally delete image versions whose Kubernetes minor has been out of upstream support for longer than graceDays (default 365). It retires whole minors only, never individual patches, so pinned patch releases stay until their minor ages out. Defaults to a dry run that only reports candidates; call with apply=true to delete them.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in gcEolImagesInput) (*mcp.CallToolResult, gcEolImagesOutput, error) {

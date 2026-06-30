@@ -37,7 +37,7 @@ type submitBuildJobOutput struct {
 }
 
 func registerSubmitBuildJob(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	auditedTool(server, &mcp.Tool{
 		Name:        "submit-build-job",
 		Description: "Build a CAPZ reference image for one flavor and Kubernetes version with image-builder, publishing to the staging gallery. Runs as a Kubernetes Job on the builder cluster and returns immediately; poll get-build-status.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in submitBuildJobInput) (*mcp.CallToolResult, submitBuildJobOutput, error) {
@@ -76,7 +76,7 @@ type getBuildStatusOutput struct {
 }
 
 func registerGetBuildStatus(server *mcp.Server) {
-	mcp.AddTool(server, &mcp.Tool{
+	auditedTool(server, &mcp.Tool{
 		Name:        "get-build-status",
 		Description: "Report the state of a build Job on the builder cluster: Pending, Running, Succeeded, Failed or NotFound.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getBuildStatusInput) (*mcp.CallToolResult, getBuildStatusOutput, error) {

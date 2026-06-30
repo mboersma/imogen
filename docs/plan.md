@@ -128,6 +128,14 @@ a dry run by default; `--apply` deletes. `hack/run-build-job.sh` runs the sweep 
 a leak from one run is collected on the next. `promote-image` is already submit-then-poll (paired with
 `get-promote-status`) so it no longer trips the MCP client's 300 second timeout.
 
+Observability and audit log (done). Every tool call is audited. `internal/tools/audit.go` wraps each
+tool with `auditedTool` so every call records the tool name, input arguments, success or failure,
+error, and duration. Each event is written to stderr as a structured JSON line (so it lands in the
+pod logs and Azure Monitor; stderr keeps it clear of the stdio MCP transport) and kept in an
+in-memory ring buffer (`IMOGEN_AUDIT_BUFFER_SIZE`, default 200) that the `get-audit-log` tool reads
+back, so the agent can report what the system has done or diagnose a failed run on demand. This
+delivers the MVP's "basic observability/audit log of every tool action."
+
 Image retirement is in place. `gc-eol-images` closes the lifecycle with a deliberately conservative
 policy: downstream projects (cloud-provider-azure, cluster-autoscaler) keep testing against
 out-of-support Kubernetes releases and pin specific patches, so the tool retires whole minors only,

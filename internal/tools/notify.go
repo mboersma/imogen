@@ -57,7 +57,7 @@ func registerNotify(server *mcp.Server) {
 		}
 
 		channel := webhookChannel(webhook)
-		if err := postWebhook(ctx, webhook, text); err != nil {
+		if err := postWebhook(ctx, webhook, resolveFormat(webhook), text); err != nil {
 			// Delivery failure must not break the pipeline; report it and let
 			// the agent continue. The audit log captures that this call ran.
 			defaultAuditLog.logger.Error("notify delivery failed",
@@ -109,9 +109,57 @@ func webhookChannel(webhook string) string {
 	return "webhook"
 }
 
-// postWebhook sends text as a Slack/Teams incoming-webhook payload.
-func postWebhook(ctx context.Context, webhook, text string) error {
-	body, err := json.Marshal(map[string]string{"text": text})
+// resolveFormat decides which webhook payload shape to send. Slack incoming
+// webhooks take {"text": ...}; Microsoft Teams Workflows webhooks (and Logic
+// Apps) take a message envelope wrapping an Adaptive Card. IMOGEN_NOTIFY_FORMAT
+// (slack or teams) forces a shape; otherwise it is inferred from the webhook
+// host, defaulting to slack.
+func resolveFormat(webhook string) string {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("IMOGEN_NOTIFY_FORMAT"))) {
+	case "teams":
+		return "teams"
+	case "slack":
+		return "slack"
+	}
+	host := strings.ToLower(webhookChannel(webhook))
+	for _, marker := range []string{"office.com", "powerplatform.com", "powerautomate", "logic.azure.com"} {
+		if strings.Contains(host, marker) {
+			return "teams"
+		}
+	}
+	return "slack"
+}
+
+// notifyPayload renders text into the JSON body for the given webhook format.
+func notifyPayload(format, text string) any {
+	if format == "teams" {
+		// Microsoft Teams Workflows "When a Teams webhook request is received"
+		// trigger expects a message envelope wrapping one or more Adaptive Cards.
+		return map[string]any{
+			"type": "message",
+			"attachments": []any{
+				map[string]any{
+					"contentType": "application/vnd.microsoft.card.adaptive",
+					"contentUrl":  nil,
+					"content": map[string]any{
+						"$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+						"type":    "AdaptiveCard",
+						"version": "1.2",
+						"body": []any{
+							map[string]any{"type": "TextBlock", "text": text, "wrap": true},
+						},
+					},
+				},
+			},
+		}
+	}
+	// Slack incoming webhook (and the common default).
+	return map[string]string{"text": text}
+}
+
+// postWebhook sends text to the webhook using the payload shape for format.
+func postWebhook(ctx context.Context, webhook, format, text string) error {
+	body, err := json.Marshal(notifyPayload(format, text))
 	if err != nil {
 		return err
 	}

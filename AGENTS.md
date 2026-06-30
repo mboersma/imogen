@@ -126,12 +126,16 @@ reading the log does not flood it.
 
 The `notify` tool pushes a status update or approval request out to a human channel, so the
 unattended release watcher's progress and its approval requests are visible when no one is watching
-the A2A stream. When `IMOGEN_NOTIFY_WEBHOOK_URL` is set, notify POSTs the message to that webhook in
-the Slack/Teams incoming-webhook shape (`{"text": ...}`); when it is unset, notify falls back to the
-log only (the message is still captured in the audit log, since notify is audited). The webhook URL
-is injected from the optional `imogen-notify` Secret (`webhook-url` key) in `deploy/toolserver-aks.yaml`,
-so it stays out of the repo. notify never gates the pipeline: the real approval gate stays in the
-agent's system message, `level=approval` only surfaces the request, and a delivery failure is reported
+the A2A stream. When `IMOGEN_NOTIFY_WEBHOOK_URL` is set, notify POSTs the message to that webhook;
+when it is unset, notify falls back to the log only (the message is still captured in the audit log,
+since notify is audited). It sends the payload shape the destination expects: Slack incoming webhooks
+take `{"text": ...}`, while Microsoft Teams Workflows webhooks (the replacement for the retired
+Office 365 connectors) take a `message` envelope wrapping an Adaptive Card. notify infers the shape
+from the webhook host (Teams for `office.com` / `powerplatform.com` / `logic.azure.com`, Slack
+otherwise); `IMOGEN_NOTIFY_FORMAT` (`slack` or `teams`) forces it. The webhook URL is injected from
+the optional `imogen-notify` Secret (`webhook-url` key) in `deploy/toolserver-aks.yaml`, so it stays
+out of the repo. notify never gates the pipeline: the real approval gate stays in the agent's system
+message, `level=approval` only surfaces the request, and a delivery failure is reported
 (`delivered=false`) but never fatal. The release watcher's reconcile prompt ends every run with a
 `notify` summary and raises a `level=approval` notification when a human is needed.
 

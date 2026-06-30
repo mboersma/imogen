@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -51,6 +52,63 @@ func TestWebhookChannel(t *testing.T) {
 	}
 }
 
+func TestResolveFormat(t *testing.T) {
+	t.Setenv("IMOGEN_NOTIFY_FORMAT", "")
+	cases := map[string]string{
+		"https://hooks.slack.com/services/T/B/X":                                  "slack",
+		"https://example.webhook.office.com/webhookb2/abc":                        "teams",
+		"https://x.environment.api.powerplatform.com/powerautomate/automations/y": "teams",
+		"https://prod-1.westus.logic.azure.com/workflows/abc/triggers/manual":     "teams",
+		"https://example.com/generic":                                             "slack",
+	}
+	for url, want := range cases {
+		if got := resolveFormat(url); got != want {
+			t.Errorf("resolveFormat(%q) = %q, want %q", url, got, want)
+		}
+	}
+}
+
+func TestResolveFormatOverride(t *testing.T) {
+	t.Setenv("IMOGEN_NOTIFY_FORMAT", "teams")
+	if got := resolveFormat("https://hooks.slack.com/services/T/B/X"); got != "teams" {
+		t.Errorf("override should force teams, got %q", got)
+	}
+	t.Setenv("IMOGEN_NOTIFY_FORMAT", "slack")
+	if got := resolveFormat("https://x.webhook.office.com/y"); got != "slack" {
+		t.Errorf("override should force slack, got %q", got)
+	}
+}
+
+func TestNotifyPayload(t *testing.T) {
+	slack, ok := notifyPayload("slack", "hi").(map[string]string)
+	if !ok || slack["text"] != "hi" {
+		t.Errorf("slack payload should be {text: hi}, got %#v", slack)
+	}
+
+	raw, err := json.Marshal(notifyPayload("teams", "hi"))
+	if err != nil {
+		t.Fatalf("marshal teams payload: %v", err)
+	}
+	var env map[string]any
+	if err := json.Unmarshal(raw, &env); err != nil {
+		t.Fatal(err)
+	}
+	if env["type"] != "message" {
+		t.Errorf("teams payload type should be message, got %v", env["type"])
+	}
+	atts, _ := env["attachments"].([]any)
+	if len(atts) != 1 {
+		t.Fatalf("teams payload should have 1 attachment, got %d", len(atts))
+	}
+	att, _ := atts[0].(map[string]any)
+	if att["contentType"] != "application/vnd.microsoft.card.adaptive" {
+		t.Errorf("wrong attachment contentType: %v", att["contentType"])
+	}
+	if !bytes.Contains(raw, []byte(`"text":"hi"`)) {
+		t.Errorf("teams card should carry the message text: %s", raw)
+	}
+}
+
 func TestPostWebhook(t *testing.T) {
 	var gotText string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -67,7 +125,7 @@ func TestPostWebhook(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := postWebhook(context.Background(), srv.URL, "hello"); err != nil {
+	if err := postWebhook(context.Background(), srv.URL, "slack", "hello"); err != nil {
 		t.Fatalf("postWebhook: %v", err)
 	}
 	if gotText != "hello" {
@@ -81,7 +139,7 @@ func TestPostWebhookNon2xx(t *testing.T) {
 	}))
 	defer srv.Close()
 
-	if err := postWebhook(context.Background(), srv.URL, "x"); err == nil {
+	if err := postWebhook(context.Background(), srv.URL, "slack", "x"); err == nil {
 		t.Fatal("expected an error for a non-2xx response")
 	}
 }

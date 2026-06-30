@@ -3,6 +3,7 @@ package k8s
 import (
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestParseMinor(t *testing.T) {
@@ -53,5 +54,24 @@ func TestRecentMinors(t *testing.T) {
 		if !reflect.DeepEqual(got, c.want) {
 			t.Errorf("recentMinors(%d, %d) = %v, want %v", c.latest, c.n, got, c.want)
 		}
+	}
+}
+
+func TestParseEOLDates(t *testing.T) {
+	body := []byte(`[
+		{"cycle":"1.36","eol":"2027-06-28"},
+		{"cycle":"1.33","eol":"2026-06-28"},
+		{"cycle":"1.99","eol":false}
+	]`)
+	got, err := parseEOLDates(body)
+	if err != nil {
+		t.Fatalf("parseEOLDates: %v", err)
+	}
+	want := map[string]time.Time{
+		"1.36": time.Date(2027, 6, 28, 0, 0, 0, 0, time.UTC),
+		"1.33": time.Date(2026, 6, 28, 0, 0, 0, 0, time.UTC),
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("parseEOLDates = %v, want %v (boolean eol cycles skipped)", got, want)
 	}
 }

@@ -111,13 +111,16 @@ Next (production hardening): let the daily watcher run the whole loop unattended
 of the temporary Packer resource group on failures. `promote-image` is now submit-then-poll (paired
 with `get-promote-status`) so it no longer trips the MCP client's 300 second timeout.
 
-Image retirement is in place. `gc-eol-images` closes the lifecycle: it computes the in-scope minors
-from `list-k8s-releases` (the most recent `minorCount`, default 3), then classifies each gallery
-version as end of life (its minor is older than the oldest in-scope minor) or superseded (an older
-patch of an in-scope minor). It defaults to a dry run that only reports the candidates and deletes
-only with `apply=true`, since removing image versions is destructive; the agent runs a dry run and
-asks for approval first, and the release-watcher only reports candidates. `hack/gc-eol-images.sh`
-is the manual equivalent.
+Image retirement is in place. `gc-eol-images` closes the lifecycle with a deliberately conservative
+policy: downstream projects (cloud-provider-azure, cluster-autoscaler) keep testing against
+out-of-support Kubernetes releases and pin specific patches, so the tool retires whole minors only,
+never individual patches. It looks up each minor's upstream end-of-life date from endoflife.date and
+retires a gallery version only once its minor is past EOL by a grace period (`graceDays` /
+`IMOGEN_GC_GRACE_DAYS`, default 365). A minor still supported, within grace, or with no known EOL
+date is kept. It defaults to a dry run that only reports the candidates and deletes only with
+`apply=true`, since removing image versions is destructive; the agent runs a dry run and asks for
+approval first, and the release-watcher only reports candidates. `hack/gc-eol-images.sh` is the
+manual equivalent.
 
 Validation version skew. Driving the watcher end to end surfaced that the builder cluster's control
 plane (then v1.34.8) could not validate a 1.35.6 image: a node's kubelet may run up to two minors

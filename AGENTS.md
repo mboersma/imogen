@@ -42,7 +42,7 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 | `run-smoke-tests`           | Assert node Ready + version + smoke checks |
 | `promote-image`             | Start promoting staging → community gallery (after approval); returns immediately |
 | `get-promote-status`        | Report a promotion's state in the community gallery (Creating/Succeeded/Failed) |
-| `gc-eol-images`             | Report (dry run) or delete EOL / superseded image versions; `apply=true` to delete |
+| `gc-eol-images`             | Report (dry run) or delete image versions whose minor is past its upstream EOL grace; `apply=true` to delete |
 | `notify`                    | Emit status / request approval |
 
 ## Supported image flavors (default)
@@ -142,15 +142,18 @@ granted.
 
 ### Image retirement (garbage collection)
 
-`hack/gc-eol-images.sh [flavor] [--apply]` retires image versions that have aged out: a version is
-end of life when its Kubernetes minor is older than the most recent `IMOGEN_GC_MINORS` minors
-upstream (default 3), and within an in-scope minor any patch below the highest one present is
-superseded. It defaults to a dry run that only lists the candidates, and deletes only with `--apply`
-(or `IMOGEN_GC_APPLY=1`). `IMOGEN_GC_STAGE` picks the staging or community gallery (default
-community). The `gc-eol-images` MCP tool applies the same policy: it computes the in-scope minors
-from `list-k8s-releases`, classifies each gallery version, and returns the candidates; `apply=true`
-deletes them. Retirement is destructive, so the agent runs a dry run first and asks for approval
-before applying, and the release-watcher only ever reports candidates.
+`hack/gc-eol-images.sh [flavor] [--apply]` retires image versions whose Kubernetes minor has been
+out of upstream support for longer than a grace period. The policy is deliberately conservative:
+downstream projects (cloud-provider-azure, cluster-autoscaler) keep testing against out-of-support
+releases and pin specific patches, so it retires whole minors only, never individual patches, and
+only once a minor is past its upstream end-of-life date by `IMOGEN_GC_GRACE_DAYS` (default 365). A
+minor still supported, within the grace window, or with no known EOL date is always kept. Per-minor
+EOL dates come from endoflife.date (`IMOGEN_K8S_EOL_URL`). It defaults to a dry run that only lists
+the candidates, and deletes only with `--apply` (or `IMOGEN_GC_APPLY=1`). `IMOGEN_GC_STAGE` picks
+the staging or community gallery (default community). The `gc-eol-images` MCP tool applies the same
+policy (with a `graceDays` input) and returns the candidates; `apply=true` deletes them. Retirement
+is destructive, so the agent runs a dry run first and asks for approval before applying, and the
+release-watcher only ever reports candidates.
 
 ### Image validation
 

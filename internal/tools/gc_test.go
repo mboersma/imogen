@@ -3,75 +3,94 @@ package tools
 import (
 	"reflect"
 	"testing"
-
-	"github.com/mboersma/imogen/internal/k8s"
+	"time"
 )
 
-func TestSupportedWindow(t *testing.T) {
-	releases := []k8s.Release{
-		{Minor: "1.36", Version: "v1.36.2"},
-		{Minor: "1.35", Version: "v1.35.6"},
-		{Minor: "1.34", Version: "v1.34.9"},
-	}
-	oldest, minors, err := supportedWindow(releases)
+func date(s string) time.Time {
+	t, err := time.Parse("2006-01-02", s)
 	if err != nil {
-		t.Fatalf("supportedWindow: %v", err)
+		panic(err)
 	}
-	if oldest != (minorKey{1, 34}) {
-		t.Errorf("oldest = %+v, want {1 34}", oldest)
-	}
-	want := []string{"1.36", "1.35", "1.34"}
-	if !reflect.DeepEqual(minors, want) {
-		t.Errorf("minors = %v, want %v", minors, want)
-	}
+	return t
 }
 
-func TestSupportedWindowEmpty(t *testing.T) {
-	if _, _, err := supportedWindow(nil); err == nil {
-		t.Fatal("expected an error for no releases")
-	}
+// Mirrors the endoflife.date Kubernetes data around mid-2026.
+var testEOL = map[string]time.Time{
+	"1.36": date("2027-06-28"),
+	"1.35": date("2027-02-28"),
+	"1.34": date("2026-10-27"),
+	"1.33": date("2026-06-28"),
+	"1.30": date("2025-06-28"),
+	"1.29": date("2025-02-28"),
+	"1.28": date("2024-10-28"),
 }
 
-func TestPlanRetirements(t *testing.T) {
-	oldest := minorKey{1, 34} // in scope: 1.34, 1.35, 1.36
+func TestPlanRetirementsGrace(t *testing.T) {
+	now := date("2026-06-30")
+	grace := 365 * 24 * time.Hour
 
 	versions := []string{
-		"1.33.13", // eol: older minor
-		"1.32.4",  // eol: older minor
-		"1.34.8",  // superseded by 1.34.9
-		"1.34.9",  // keep: highest patch of an in-scope minor
-		"1.35.6",  // keep: only patch of its minor
-		"1.36.1",  // superseded by 1.36.2
-		"1.36.2",  // keep: highest patch
-		"garbage", // ignored: unparseable
+		"1.28.5",  // eol 2024-10-28: ~20 months past, retire
+		"1.29.10", // eol 2025-02-28: ~16 months past, retire
+		"1.30.4",  // eol 2025-06-28: ~12 months + 2 days past grace, retire
+		"1.33.13", // eol 2026-06-28: just EOL, well within grace, keep
+		"1.34.9",  // still supported, keep
+		"1.36.2",  // still supported, keep
+		"garbage", // unparseable, ignored
 	}
 
-	got := planRetirements("capi-ubuntu-2404", versions, oldest)
+	got := planRetirements("capi-ubuntu-2404", versions, testEOL, now, grace)
 	want := []retiredImage{
-		{Definition: "capi-ubuntu-2404", Version: "1.32.4", Reason: reasonEOL},
-		{Definition: "capi-ubuntu-2404", Version: "1.33.13", Reason: reasonEOL},
-		{Definition: "capi-ubuntu-2404", Version: "1.34.8", Reason: reasonSuperseded},
-		{Definition: "capi-ubuntu-2404", Version: "1.36.1", Reason: reasonSuperseded},
+		{Definition: "capi-ubuntu-2404", Version: "1.28.5", Minor: "1.28", UpstreamEOL: "2024-10-28"},
+		{Definition: "capi-ubuntu-2404", Version: "1.29.10", Minor: "1.29", UpstreamEOL: "2025-02-28"},
+		{Definition: "capi-ubuntu-2404", Version: "1.30.4", Minor: "1.30", UpstreamEOL: "2025-06-28"},
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("planRetirements:\n got %+v\nwant %+v", got, want)
 	}
 }
 
-func TestPlanRetirementsNothingToRetire(t *testing.T) {
-	oldest := minorKey{1, 34}
-	versions := []string{"1.34.9", "1.35.6", "1.36.2"}
-	if got := planRetirements("capi-ubuntu-2404", versions, oldest); len(got) != 0 {
-		t.Errorf("expected no retirements, got %+v", got)
+func TestPlanRetirementsKeepsAllPatchesOfLiveMinor(t *testing.T) {
+	now := date("2026-06-30")
+	grace := 365 * 24 * time.Hour
+	// Multiple patches of an in-support minor: none are retired, even superseded
+	// ones, because downstream projects pin specific patches.
+	versions := []string{"1.34.1", "1.34.5", "1.34.9"}
+	if got := planRetirements("capi-ubuntu-2404", versions, testEOL, now, grace); len(got) != 0 {
+		t.Errorf("expected no retirements for a live minor, got %+v", got)
 	}
 }
 
-func TestPlanRetirementsKeepsNewerThanScope(t *testing.T) {
-	// A minor newer than the in-scope window (built ahead of the stable list)
-	// is not end of life and must be kept.
-	oldest := minorKey{1, 34}
-	versions := []string{"1.37.0"}
-	if got := planRetirements("capi-ubuntu-2404", versions, oldest); len(got) != 0 {
-		t.Errorf("expected newer-than-scope version kept, got %+v", got)
+func TestPlanRetirementsKeepsAllPatchesUntilMinorAgesOut(t *testing.T) {
+	now := date("2026-06-30")
+	grace := 365 * 24 * time.Hour
+	// 1.29 is past EOL+grace, so every patch of it retires together.
+	versions := []string{"1.29.1", "1.29.5", "1.29.10"}
+	got := planRetirements("capi-ubuntu-2404", versions, testEOL, now, grace)
+	if len(got) != 3 {
+		t.Fatalf("expected all 3 patches retired, got %+v", got)
+	}
+}
+
+func TestPlanRetirementsUnknownMinorKept(t *testing.T) {
+	now := date("2026-06-30")
+	grace := 365 * 24 * time.Hour
+	// A minor with no EOL data (newer or unrecognized) is never retired.
+	versions := []string{"1.99.0"}
+	if got := planRetirements("capi-ubuntu-2404", versions, testEOL, now, grace); len(got) != 0 {
+		t.Errorf("expected unknown minor kept, got %+v", got)
+	}
+}
+
+func TestPlanRetirementsZeroGraceRetiresAtEOL(t *testing.T) {
+	now := date("2026-06-30")
+	// With no grace, a minor retires as soon as it is past upstream EOL.
+	versions := []string{"1.33.13", "1.34.9"}
+	got := planRetirements("capi-ubuntu-2404", versions, testEOL, now, 0)
+	want := []retiredImage{
+		{Definition: "capi-ubuntu-2404", Version: "1.33.13", Minor: "1.33", UpstreamEOL: "2026-06-28"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("planRetirements zero grace:\n got %+v\nwant %+v", got, want)
 	}
 }

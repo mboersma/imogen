@@ -73,6 +73,10 @@ trap 'rm -f "$WL_KUBECONFIG"' EXIT
 "$DIR/hack/gc-build-rgs.sh" --apply || echo "warning: build-rg sweep failed, continuing" >&2
 
 echo "Applying build Job $NAME (target $TARGET) to $CLUSTER"
+# A Job spec is immutable, so re-running a build for the same flavor and version
+# (after an earlier failure) would fail "field is immutable" on apply. Delete any
+# prior Job of this name first so the build always starts fresh.
+kubectl --kubeconfig "$WL_KUBECONFIG" delete job "$NAME" --ignore-not-found >/dev/null
 sed \
   -e "s|__NAME__|${NAME}|g" \
   -e "s|__FLAVOR__|${FLAVOR}|g" \

@@ -41,6 +41,7 @@ for arg in "$@"; do
 done
 
 TTL="${IMOGEN_BUILD_RG_TTL:-10800}"
+NOW="$(date -u +%s)"
 SUBSCRIPTION_ID="${IMOGEN_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}"
 az account set --subscription "$SUBSCRIPTION_ID"
 

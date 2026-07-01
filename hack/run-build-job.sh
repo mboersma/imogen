@@ -50,7 +50,11 @@ CLIENT_ID="${IMOGEN_BUILDER_CLIENT_ID:-$(az identity show -g "$RESOURCE_GROUP" -
 TARGET="build-azure-sig-${FLAVOR}"
 NAME="imogen-build-${FLAVOR}-${SIG_VERSION//./-}"
 BUILD_TS="$(date -u +%s)"
-PACKER_FLAGS="--var sig_image_version=${SIG_VERSION} --var kubernetes_semver=${SEMVER} --var kubernetes_series=${SERIES} --var kubernetes_deb_version=${SIG_VERSION}-1.1 --var kubernetes_rpm_version=${SIG_VERSION}"
+# Look up the exact published deb revision instead of assuming -1.1, which breaks
+# when upstream rebuilds a patch's packages (1.36.2 shipped as -2.1).
+DEB_VERSION="$(imogen_k8s_deb_version "$SERIES" "$SIG_VERSION")"
+echo "Using kubernetes_deb_version=${DEB_VERSION}"
+PACKER_FLAGS="--var sig_image_version=${SIG_VERSION} --var kubernetes_semver=${SEMVER} --var kubernetes_series=${SERIES} --var kubernetes_deb_version=${DEB_VERSION} --var kubernetes_rpm_version=${SIG_VERSION}"
 
 # Machine pool operations are on the management cluster; on a workstation select
 # its context first (in cluster the tool server already runs against it).

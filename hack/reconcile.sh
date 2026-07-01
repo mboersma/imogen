@@ -63,8 +63,11 @@ reports Succeeded or Failed. This reconcile runs unattended on a schedule and \
 no human is available, so if validation Succeeded you are authorized to promote it without asking for \
 approval: call promote-image directly, then keep polling get-promote-status until it reports \
 Succeeded before treating the version as promoted. If validation Failed, do NOT promote; report the \
-failure and move on. Keep polling any long-running tool on your own; do NOT end your turn while one \
-is still working."
+failure and move on. Finish one version completely (poll its validation to a terminal state, then \
+promote and poll the promotion to Succeeded) before you start another version or flavor, and if you \
+launched other work meanwhile always come back and poll every validation and promotion you started \
+until each reaches a terminal state. Keep polling any long-running tool on your own; do NOT end your \
+turn while one is still working."
 else
   PROMOTE_STEP="3. For each in-scope version that is in staging but NOT yet in the community gallery: \
 it is already built, so call validate-image on it, then keep polling get-validation-status until it \
@@ -85,14 +88,18 @@ Steps:
 1. Call list-k8s-releases with minorCount ${MINORS} to get the latest stable patch \
 for each recent Kubernetes minor version. These are the in-scope versions.
 2. For each flavor, call list-gallery-versions for BOTH the staging and the community stage to see \
-which image versions exist in each.
+which image versions exist in each. Then, for each flavor, check every in-scope version against the \
+community list and act on every one that is missing; do not stop after the newest.
 ${PROMOTE_STEP}
 ${BUILD_STEP}
 5. If every in-scope version is already in the community gallery, say so.
 6. Call gc-eol-images as a dry run (apply=false) for the community gallery to list any minors past their \
 upstream end-of-life grace period. Report them as retirement candidates, but do NOT delete anything: retirement \
 needs human approval, so leave apply=true for an operator.
-7. Finally, call notify once with a short summary of what you found and did this run (level=info). If \
+7. Finally, call notify once with a short summary of what you found and did this run (level=info). Your \
+summary must describe only what the tools actually confirmed: never say a version was built, validated, \
+or promoted unless the corresponding status tool returned Succeeded for it this run. If a step did not \
+finish or you did not complete it, say so plainly rather than assuming success. If \
 anything needs a human, such as retirement candidates to approve or a step you could not complete, also call \
 notify with level=approval describing exactly what you need approved.
 

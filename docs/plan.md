@@ -175,6 +175,21 @@ carries `machineset.cluster.x-k8s.io/skip-preflight-checks`. With the v1.36.1 co
 the agent validated and promoted `1.35.6` to the community gallery end to end through the approval
 gate.
 
+Unattended reliability fixes. Running the watcher live surfaced three problems, now fixed. First,
+long reconciles stalled partway through: the `imogen-aoai-refresher` ran every 30 minutes and
+restarted the agent to load the fresh token, which killed whatever turn was in flight. A kagent A2A
+turn actually runs server-side and survives an SSE client disconnect, so the reconcile stream
+dropping was never the cause. The token is valid for about 24 hours, so the refresher now runs once
+a day at 07:00 (an hour before the watcher) and skips the restart while a release-watcher run is
+active, so it never interrupts a reconcile. Second, `validate-image` blocked for several minutes and
+tripped the MCP client's 300 second timeout, which the agent then wrongly retried. Like
+`submit-build-job` and `promote-image`, it now starts the validation in the background and returns
+immediately, and the agent polls a new `get-validation-status` tool until Succeeded or Failed.
+Third, gallery versions are immutable, so there was no way to rebuild a version already in the
+community gallery in place. `promote-image` now takes `replace=true` (and `hack/promote-image.sh` a
+`--replace` flag) to delete the existing community version and recreate it from validated staging,
+with a brief window where it is absent; the watcher never uses it.
+
 Scaling and footprint. Two refinements were evaluated for how the builder cluster scales and
 how small the idle footprint can get.
 

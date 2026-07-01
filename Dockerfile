@@ -13,7 +13,7 @@ RUN CGO_ENABLED=0 go build -trimpath -o /imogen-toolserver ./cmd/imogen-toolserv
 FROM mcr.microsoft.com/azure-cli:latest
 
 ARG KUBECTL_VERSION=v1.34.8
-RUN tdnf install -y ca-certificates curl tar && tdnf clean all && \
+RUN tdnf install -y ca-certificates curl tar gawk gzip && tdnf clean all && \
     arch="$(uname -m)"; \
     case "$arch" in x86_64) arch=amd64 ;; aarch64) arch=arm64 ;; esac; \
     curl -fsSL -o /usr/local/bin/kubectl \

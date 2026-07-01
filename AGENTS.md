@@ -122,6 +122,14 @@ which the `get-audit-log` tool reads back so the agent can report what the syste
 diagnose a failed run without leaving the conversation. `get-audit-log` is itself unaudited, so
 reading the log does not flood it.
 
+From a workstation, `hack/audit-log.sh` reads that same log without going through the agent: it
+port-forwards to the toolserver Service, speaks enough MCP to call `get-audit-log`, and prints the
+actions newest last. `--tool <name>` filters to one tool, `--changes` shows only the actions that
+create or delete a published community-gallery image (`promote-image`, `gc-eol-images`) and flags
+them, `--watch` follows new actions live, and `--json` emits the raw events. The in-memory log resets
+when the toolserver pod restarts, so for durable history read the container logs
+(`kubectl -n kagent logs deploy/imogen-toolserver`) or Azure Monitor, where the same JSON lines land.
+
 ### Notifications (notify)
 
 The `notify` tool pushes a status update or approval request out to a human channel, so the

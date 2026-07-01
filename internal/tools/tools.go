@@ -10,6 +10,7 @@ func Register(server *mcp.Server) {
 	registerSubmitBuildJob(server)
 	registerGetBuildStatus(server)
 	registerValidateImage(server)
+	registerGetValidationStatus(server)
 	registerPromoteImage(server)
 	registerGetPromoteStatus(server)
 	registerGcEolImages(server)

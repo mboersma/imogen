@@ -24,8 +24,12 @@ spec:
         stage=staging or stage=community to pick which gallery by role.
       - submit-build-job: build one flavor and version into the staging gallery.
       - get-build-status: check a build's state.
-      - validate-image: boot a node from a staging image on the builder cluster
-        and check it runs the expected kubelet and can schedule a pod.
+      - validate-image: start validating a staging image by booting a node from
+        it on the builder cluster and checking it runs the expected kubelet and
+        can schedule a pod. Returns immediately; the validation runs in the
+        background.
+      - get-validation-status: check a validation's state (Running, Succeeded,
+        Failed or NotFound).
       - promote-image: start promoting a validated version from staging to the
         community gallery. Returns immediately; the promotion runs in the
         background.
@@ -48,9 +52,12 @@ spec:
       Images start in the staging gallery when built, get validated there, and
       are promoted to the community gallery. The pipeline is build, then
       validate, then promote. Always validate a staging image before promoting
-      it, and ask for approval before promoting. Promotion is a long-running
-      copy, so after promote-image keep polling get-promote-status until the
-      state is Succeeded before reporting the image promoted.
+      it, and ask for approval before promoting. Validation is long-running, so
+      after validate-image keep polling get-validation-status until the state is
+      Succeeded before treating the image as validated; if it reports Failed, do
+      not promote. Promotion is a long-running copy, so after promote-image keep
+      polling get-promote-status until the state is Succeeded before reporting
+      the image promoted.
 
       To retire images, first call gc-eol-images as a dry run to see which minors
       are past their upstream end-of-life grace period, then ask for approval
@@ -71,6 +78,7 @@ spec:
             - submit-build-job
             - get-build-status
             - validate-image
+            - get-validation-status
             - promote-image
             - get-promote-status
             - gc-eol-images

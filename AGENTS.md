@@ -38,8 +38,8 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 | `submit-build-job`          | Run image-builder (`build-azure-sig-<os>-<ver>`) → staging gallery |
 | `get-build-status`          | Report a build container's state (Running/Succeeded/Failed) |
 | `scale-builder-pool`        | Scale the CAPZ builder MachinePool 0↔N |
-| `attach-validation-nodepool`| Boot a node from a staging image (`image.computeGallery`) |
-| `run-smoke-tests`           | Assert node Ready + version + smoke checks |
+| `validate-image`            | Start booting a node from a staging image (`image.computeGallery`), assert Ready + version + smoke checks; returns immediately |
+| `get-validation-status`     | Report a validation's state (Running/Succeeded/Failed/NotFound) |
 | `promote-image`             | Start promoting staging → community gallery (after approval); returns immediately |
 | `get-promote-status`        | Report a promotion's state in the community gallery (Creating/Succeeded/Failed) |
 | `gc-eol-images`             | Report (dry run) or delete image versions whose minor is past its upstream EOL grace; `apply=true` to delete |
@@ -224,6 +224,14 @@ node without working CNI does not block deletion. Everything is torn down on exi
 `IMOGEN_VALIDATE_KEEP=1` is set. The script replicates the staging image to the builder region
 (`IMOGEN_BUILDER_LOCATION`) first if needed, since builds publish only to the gallery home region.
 
+A full validation takes several minutes, which is longer than the MCP client timeout, so the
+`validate-image` tool does not run the script inline. Like `submit-build-job` and `promote-image`, it
+starts the script in the background and returns immediately; the agent then polls `get-validation-status`
+until the state is Succeeded or Failed. The background run writes its output to a log file and its exit
+code to a done file under `IMOGEN_VALIDATE_STATE_DIR` (default the system temp dir), keyed by flavor and
+version, and `get-validation-status` reads those back. Re-calling `validate-image` for a run already in
+flight reports Running rather than starting a second one.
+
 The validation node runs the image's Kubernetes version, so the builder cluster's control plane must
 be at least that minor: a kubelet may run up to two minors behind the kube-apiserver but never ahead.
 The builder control plane therefore tracks the newest in-scope minor (`IMOGEN_BUILDER_K8S_VERSION`,
@@ -362,7 +370,7 @@ that runs `hack/reconcile.sh`. The script is thin on purpose: it posts a standin
 to the agent's A2A endpoint over JSON-RPC `message/stream` and lets the agent do the work. The agent
 calls `list-k8s-releases` and `list-gallery-versions`, computes which upstream versions are missing
 from the community gallery, and drives `submit-build-job` → `get-build-status` → `validate-image` →
-`promote-image` → `get-promote-status`. The watcher runs unattended: because no human is present,
+`get-validation-status` → `promote-image` → `get-promote-status`. The watcher runs unattended: because no human is present,
 the reconcile prompt authorizes the agent to promote a validated image without approval
 (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`). Interactive runs through the kagent UI still hit the approval
 gate in the agent's system message, and `gc-eol-images` is only ever a dry run here. Because kagent

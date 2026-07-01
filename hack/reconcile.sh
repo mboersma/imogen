@@ -58,17 +58,19 @@ fi
 
 if [[ "$AUTO_PROMOTE" == "1" ]]; then
   PROMOTE_STEP="3. For each in-scope version that is in staging but NOT yet in the community gallery: \
-it is already built, so call validate-image on it. This reconcile runs unattended on a schedule and \
-no human is available, so if validation passes you are authorized to promote it without asking for \
+it is already built, so call validate-image on it, then keep polling get-validation-status until it \
+reports Succeeded or Failed. This reconcile runs unattended on a schedule and \
+no human is available, so if validation Succeeded you are authorized to promote it without asking for \
 approval: call promote-image directly, then keep polling get-promote-status until it reports \
-Succeeded before treating the version as promoted. If validation fails, do NOT promote; report the \
+Succeeded before treating the version as promoted. If validation Failed, do NOT promote; report the \
 failure and move on. Keep polling any long-running tool on your own; do NOT end your turn while one \
 is still working."
 else
   PROMOTE_STEP="3. For each in-scope version that is in staging but NOT yet in the community gallery: \
-it is already built, so call validate-image on it. If validation passes, call notify with level=approval \
+it is already built, so call validate-image on it, then keep polling get-validation-status until it \
+reports Succeeded or Failed. If validation Succeeded, call notify with level=approval \
 to request that a human approve promoting it, but do NOT promote this run: no human is available to approve \
-right now. After validation, keep polling any long-running tool on your own; do NOT end your turn while one \
+right now. Keep polling any long-running tool on your own; do NOT end your turn while one \
 is still working."
 fi
 

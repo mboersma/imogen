@@ -188,7 +188,10 @@ immediately, and the agent polls a new `get-validation-status` tool until Succee
 Third, gallery versions are immutable, so there was no way to rebuild a version already in the
 community gallery in place. `promote-image` now takes `replace=true` (and `hack/promote-image.sh` a
 `--replace` flag) to delete the existing community version and recreate it from validated staging,
-with a brief window where it is absent; the watcher never uses it.
+with a brief window where it is absent; the watcher never uses it. Verified live end to end: with
+`1.34.9` deleted from both galleries, the daily watcher rebuilt it, validated it through the new
+non-blocking poll, and promoted it back to the community gallery in one unattended run with no
+mid-run restart.
 
 Scaling and footprint. Two refinements were evaluated for how the builder cluster scales and
 how small the idle footprint can get.

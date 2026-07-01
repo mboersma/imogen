@@ -48,9 +48,15 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 
 ## Supported image flavors (default)
 
-Ubuntu 24.04, Ubuntu 26.04, Windows Server 2022, Windows Server 2025.
-Azure Linux 4 will be added once it is officially released (image-builder currently ships
-`azurelinux-3`). image-builder Azure targets follow `build-azure-sig-<os>-<ver>`.
+Ubuntu 24.04, Ubuntu 26.04, Azure Linux 3, Windows Server 2022, Windows Server 2025. image-builder
+Azure targets follow `build-azure-sig-<os>-<ver>`, and every target here builds gen1, so the gallery
+image definitions are hyper-v-generation V1. The version variable is OS-specific: Ubuntu pins
+`kubernetes_deb_version` (patch plus package revision), Azure Linux pins `kubernetes_rpm_version`
+(plain patch), and Windows downloads binaries by semver and needs neither; `hack/run-build-job.sh`
+selects the right one per flavor. Azure Linux 3 is gen1; when Azure Linux 4 is officially released it
+replaces 3 and is gen2 (definitions would be V2). The release watcher only builds the Linux flavors
+today (`ubuntu-2404 ubuntu-2604 azurelinux-3`); Windows validation is still a manual fork, so the two
+Windows flavors are defined and buildable but not yet in the unattended watcher scope.
 
 ## Key upstream facts to respect
 

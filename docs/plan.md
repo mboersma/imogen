@@ -236,8 +236,10 @@ how small the idle footprint can get.
    - NOTE: the auto-classification "team/containerd" label is **inaccurate** — re-triage.
 
 ## Default supported flavors
-Ubuntu 24.04, Ubuntu 26.04, Windows Server 2022, Windows Server 2025.
-Add Azure Linux 4 once officially released (image-builder target TBD; today only `azurelinux-3` exists).
+Ubuntu 24.04, Ubuntu 26.04, Azure Linux 3, Windows Server 2022, Windows Server 2025.
+All are gen1 (gallery definitions V1). Azure Linux 3 will be replaced by Azure Linux 4 once it is
+officially released; Azure Linux 4 is gen2 (V2). The unattended release watcher currently reconciles
+the three Linux flavors; Windows validation is a manual fork pending a Windows validation nodepool.
 
 ---
 

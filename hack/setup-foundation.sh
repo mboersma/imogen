@@ -22,7 +22,7 @@ STAGING_GALLERY="${IMOGEN_STAGING_GALLERY:-imogen_staging}"
 COMMUNITY_GALLERY="${IMOGEN_COMMUNITY_GALLERY:-imogen_community}"
 PUBLISHER="${IMOGEN_GALLERY_PUBLISHER:-imogen}"
 OFFER="${IMOGEN_GALLERY_OFFER:-imogen}"
-FLAVORS="${IMOGEN_FLAVORS:-ubuntu-2404 ubuntu-2604 windows-2022-containerd windows-2025-containerd}"
+FLAVORS="${IMOGEN_FLAVORS:-ubuntu-2404 ubuntu-2604 azurelinux-3 windows-2022-containerd windows-2025-containerd}"
 ENABLE_COMMUNITY="${IMOGEN_ENABLE_COMMUNITY:-false}"
 
 az account set --subscription "$SUBSCRIPTION_ID"
@@ -39,6 +39,7 @@ flavor_meta() {
   case "$1" in
   ubuntu-2404) echo "Linux V1 24_04-lts" ;;
   ubuntu-2604) echo "Linux V1 26_04-lts" ;;
+  azurelinux-3) echo "Linux V1 azure-linux-3" ;;
   windows-2022-containerd) echo "Windows V1 win-2022-containerd" ;;
   windows-2025-containerd) echo "Windows V1 win-2025-containerd" ;;
   *)

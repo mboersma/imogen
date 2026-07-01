@@ -220,7 +220,7 @@ Add Azure Linux 4 once officially released (image-builder target TBD; today only
 ## Verified upstream facts (research, June 2026)
 
 ### image-builder (`kubernetes-sigs/image-builder`)
-- Released container artifact: `registry.k8s.io/scl-image-builder/cluster-node-image-builder-amd64:v0.1.52`
+- Released container artifact: `registry.k8s.io/scl-image-builder/cluster-node-image-builder-amd64:v0.1.53`
   (staging: `gcr.io/k8s-staging-scl-image-builder/...`). ENTRYPOINT is `make`; pass a target as CMD.
 - Reference workflow: `.github/workflows/build-azure-sig.yaml` (`workflow_dispatch` only).
   Pipeline = **build → test (smoke VM) → approve (manual gate) → promote (community gallery)**.

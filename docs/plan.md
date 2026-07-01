@@ -21,7 +21,10 @@ Done:
   scales the builder pool up to one worker if idle and returns the Job name; the agent polls
   `get-build-status`. Verified end-to-end: ubuntu-2404 builds published to `imogen_staging`. The build
   pins the real Kubernetes version (semver, series, deb/rpm) so the gallery version label matches what
-  is installed.
+  is installed. The deb revision is looked up from the community apt repo rather than assumed to be
+  `-1.1`, since the release team occasionally rebuilds a patch's packages and bumps it (1.36.2 shipped
+  as `-2.1`); image-builder installs the pinned `kubernetes_deb_version` verbatim, so a stale guess
+  fails the Ansible install.
 - Tools `promote-image` / `get-promote-status` with `hack/promote-image.sh`: `promote-image` submits
   the staging→community copy with `az --no-wait` and returns immediately, then the agent polls
   `get-promote-status` for the community version's provisioningState until Succeeded. Submitting

@@ -32,7 +32,9 @@ spec:
         Failed or NotFound).
       - promote-image: start promoting a validated version from staging to the
         community gallery. Returns immediately; the promotion runs in the
-        background.
+        background. Set replace=true to rebuild a version that already exists in
+        the community gallery in place (it is deleted first, so it is briefly
+        absent); only do this when explicitly asked.
       - get-promote-status: check a promotion's state in the community gallery
         (Creating, Succeeded, Failed or NotFound).
       - gc-eol-images: find and optionally delete image versions whose

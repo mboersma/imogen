@@ -40,7 +40,7 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 | `scale-builder-pool`        | Scale the CAPZ builder MachinePool 0↔N |
 | `validate-image`            | Start booting a node from a staging image (`image.computeGallery`), assert Ready + version + smoke checks; returns immediately |
 | `get-validation-status`     | Report a validation's state (Running/Succeeded/Failed/NotFound) |
-| `promote-image`             | Start promoting staging → community gallery (after approval); returns immediately |
+| `promote-image`             | Start promoting staging → community gallery (after approval); returns immediately. `replace=true` rebuilds an existing community version in place |
 | `get-promote-status`        | Report a promotion's state in the community gallery (Creating/Succeeded/Failed) |
 | `gc-eol-images`             | Report (dry run) or delete image versions whose minor is past its upstream EOL grace; `apply=true` to delete |
 | `get-audit-log`            | Return the most recent tool actions (tool, input, outcome, error, duration) for reporting and diagnosis |
@@ -187,15 +187,21 @@ build, so a leak from one run is collected on the next.
 
 ### Image promotion
 
-`hack/promote-image.sh <flavor> <version>` copies a validated image version from the staging
-gallery to the community gallery, sourced from the staging version (both galleries live in the
-same resource group). It blocks until the copy finishes, which suits a human running it directly.
+`hack/promote-image.sh <flavor> <version> [--replace]` copies a validated image version from the
+staging gallery to the community gallery, sourced from the staging version (both galleries live in
+the same resource group). It blocks until the copy finishes, which suits a human running it directly.
 The `promote-image` MCP tool does the same copy but submits it with `az --no-wait` and returns
 immediately, because the gallery create can run for several minutes and a blocking tool call would
 trip the MCP client's timeout (the agent would then narrate a timeout as success). The agent polls
 `get-promote-status`, which reports the community version's provisioningState (Creating, Succeeded,
 Failed or NotFound), until it is Succeeded. Both run only after validation passes and approval is
 granted.
+
+Gallery image versions are immutable, so rebuilding a version that already exists in the community
+gallery means deleting it and recreating it from staging. Passing `--replace` to the script (or
+`replace=true` to the tool) does exactly that: it deletes the existing community version first, then
+recreates it from the validated staging version. There is a brief window where the version is absent
+from the community gallery, so this only happens on explicit request, never in the release watcher.
 
 ### Image retirement (garbage collection)
 

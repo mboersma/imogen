@@ -6,8 +6,13 @@
 # community version is created from the staging version as its source, so the
 # galleries must be in the same resource group.
 #
-# Usage: hack/promote-image.sh <flavor> <version>
+# Usage: hack/promote-image.sh <flavor> <version> [--replace]
 #   e.g. hack/promote-image.sh ubuntu-2404 1.34.9
+#
+# Pass --replace to rebuild a version that already exists in the community
+# gallery in place: the existing version is deleted first, then recreated from
+# staging, so the version is briefly absent. Gallery versions are immutable, so
+# this delete-then-recreate is the only way to replace one.
 #
 # Parameterized via IMOGEN_* env vars. See hack/foundation.env.example.
 
@@ -20,8 +25,12 @@ fi
 
 FLAVOR="${1:-}"
 VERSION="${2:-}"
+REPLACE=0
+if [[ "${3:-}" == "--replace" ]]; then
+  REPLACE=1
+fi
 if [[ -z "$FLAVOR" || -z "$VERSION" ]]; then
-  echo "usage: $0 <flavor> <version>" >&2
+  echo "usage: $0 <flavor> <version> [--replace]" >&2
   exit 1
 fi
 VERSION="${VERSION#v}"
@@ -40,6 +49,15 @@ echo "Promoting ${DEFINITION}/${VERSION}"
 echo "  from $STAGING_GALLERY"
 echo "  to   $COMMUNITY_GALLERY"
 echo
+
+if [[ "$REPLACE" == "1" ]]; then
+  if az sig image-version show -g "$RESOURCE_GROUP" -r "$COMMUNITY_GALLERY" \
+      -i "$DEFINITION" -e "$VERSION" -o none 2>/dev/null; then
+    echo "replace: deleting existing ${DEFINITION}/${VERSION} from $COMMUNITY_GALLERY"
+    az sig image-version delete -g "$RESOURCE_GROUP" -r "$COMMUNITY_GALLERY" \
+      -i "$DEFINITION" -e "$VERSION" -o none
+  fi
+fi
 
 az sig image-version create \
   -g "$RESOURCE_GROUP" \

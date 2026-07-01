@@ -18,6 +18,7 @@ import (
 type promoteImageInput struct {
 	Flavor        string   `json:"flavor" jsonschema:"image-builder flavor, such as ubuntu-2404"`
 	Version       string   `json:"version" jsonschema:"image version to promote, such as 1.34.9 or v1.34.9"`
+	Replace       bool     `json:"replace,omitempty" jsonschema:"if the target version already exists, delete it first and recreate it from staging; there is a brief window where the version is absent from the community gallery"`
 	ResourceGroup string   `json:"resourceGroup,omitempty" jsonschema:"Azure resource group (defaults to IMOGEN_RESOURCE_GROUP)"`
 	SourceGallery string   `json:"sourceGallery,omitempty" jsonschema:"staging gallery (defaults to IMOGEN_STAGING_GALLERY)"`
 	TargetGallery string   `json:"targetGallery,omitempty" jsonschema:"community gallery (defaults to IMOGEN_COMMUNITY_GALLERY)"`
@@ -35,7 +36,7 @@ type promoteImageOutput struct {
 func registerPromoteImage(server *mcp.Server) {
 	auditedTool(server, &mcp.Tool{
 		Name:        "promote-image",
-		Description: "Start promoting a validated image version from the staging gallery to the community gallery. Call only after validation passes and approval is granted. Returns immediately; poll get-promote-status until the state is Succeeded.",
+		Description: "Start promoting a validated image version from the staging gallery to the community gallery. Call only after validation passes and approval is granted. Returns immediately; poll get-promote-status until the state is Succeeded. Set replace=true to rebuild a version that already exists in the community gallery in place (it is deleted first, so the version is briefly absent).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in promoteImageInput) (*mcp.CallToolResult, promoteImageOutput, error) {
 		if in.Flavor == "" || in.Version == "" {
 			return nil, promoteImageOutput{}, fmt.Errorf("flavor and version are required")
@@ -53,6 +54,22 @@ func registerPromoteImage(server *mcp.Server) {
 		subscriptionID, err := azure.SubscriptionID(ctx)
 		if err != nil {
 			return nil, promoteImageOutput{}, err
+		}
+
+		// Gallery image versions are immutable, so to rebuild one in place we must
+		// delete the existing community version before recreating it from staging.
+		// This leaves a brief window where the version is absent, so only do it
+		// when the caller explicitly asks to replace.
+		if in.Replace {
+			state, err := azure.ImageVersionProvisioningState(ctx, rg, target, definition, version)
+			if err != nil {
+				return nil, promoteImageOutput{}, fmt.Errorf("replace: checking existing %s %s: %w", definition, version, err)
+			}
+			if state != "NotFound" {
+				if err := azure.DeleteImageVersion(ctx, rg, target, definition, version); err != nil {
+					return nil, promoteImageOutput{}, fmt.Errorf("replace: deleting existing %s %s: %w", definition, version, err)
+				}
+			}
 		}
 
 		err = azure.StartImageVersionPromotion(ctx, azure.Promotion{

@@ -1,12 +1,21 @@
 # Refreshes the Azure OpenAI Entra token for the agent.
 #
 # This kagent version's Azure OpenAI client only sends the api-key header, and
-# this account is Entra-only, so the agent authenticates with a short-lived Entra
-# Bearer token passed as a default header on the ModelConfig. Rather than rerun a
-# host script every hour, this CronJob uses workload identity to mint a fresh
-# token in cluster and patch it into the ModelConfig, then restarts the agent so
-# it picks up the new token. hack/setup-kagent-aks.sh fills in the image and the
-# identity client id.
+# this account is Entra-only, so the agent authenticates with an Entra token
+# passed as a default header on the ModelConfig. This CronJob uses workload
+# identity to mint a fresh token in cluster, patch it into the ModelConfig, then
+# restart the agent so it loads it. The agent caches the token at startup and
+# does not re-read the ModelConfig live, so a restart is the only way to pick up
+# a new token. hack/setup-kagent-aks.sh fills in the image and the identity
+# client id.
+#
+# The token is valid ~24h, so this runs once a day (an hour before the release
+# watcher, while the agent is idle) rather than every 30 minutes. A restart kills
+# any in-flight agent turn, and a full reconcile (build -> validate -> promote)
+# runs far longer than the old 30-minute cadence, so the frequent restart used to
+# kill unattended runs mid-pipeline. As a safeguard the refresher also skips the
+# restart whenever a release-watcher run is active: the running agent keeps its
+# still-valid 24h token, and the next refresh restarts it to pick up the newest.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -27,6 +36,9 @@ rules:
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "patch"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
@@ -48,7 +60,7 @@ metadata:
   name: imogen-aoai-refresher
   namespace: kagent
 spec:
-  schedule: "*/30 * * * *"
+  schedule: "0 7 * * *"
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 120
   successfulJobsHistoryLimit: 1
@@ -81,5 +93,10 @@ spec:
                     --query accessToken -o tsv)"
                   kubectl patch modelconfig imogen-aoai -n kagent --type merge \
                     -p "{\"spec\":{\"defaultHeaders\":{\"Authorization\":\"Bearer ${token}\"}}}"
-                  kubectl -n kagent rollout restart deploy/imogen
-                  echo "refreshed Azure OpenAI token on the imogen ModelConfig"
+                  if kubectl -n kagent get pods -l app=imogen-release-watcher \
+                       --field-selector=status.phase=Running -o name | grep -q .; then
+                    echo "release-watcher run in progress; patched token but skipped agent restart to avoid killing it"
+                  else
+                    kubectl -n kagent rollout restart deploy/imogen
+                    echo "refreshed Azure OpenAI token on the imogen ModelConfig and restarted the agent"
+                  fi

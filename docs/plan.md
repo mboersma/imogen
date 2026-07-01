@@ -75,8 +75,11 @@ needs on the `imogen` resource group and is federated to the tool server service
 `validate-image.sh` runs in-cluster, reading the builder kubeconfig from its secret. Verified live:
 `az` authenticates as the workload identity, lists the galleries, and reads the builder kubeconfig;
 the agent discovered all six tools. Because this kagent version still only sends the api-key header,
-a `imogen-aoai-refresher` CronJob mints a fresh Entra token with workload identity every 30 minutes
-and patches it into the `ModelConfig`, replacing the manual host script reruns.
+a `imogen-aoai-refresher` CronJob mints a fresh Entra token with workload identity and patches it
+into the `ModelConfig`, replacing the manual host script reruns. The token lasts about 24 hours, so
+the refresh runs once a day at 07:00 (an hour before the release watcher) and skips restarting the
+agent while a release-watcher run is in progress, since the restart it needs to load a new token
+would otherwise kill a reconcile mid-run.
 
 Reconstructibility check. After Azure deallocated the dev VMs overnight, we tore the builder cluster
 down and rebuilt it from the scripts to test repeatability. It worked but needed manual fix-ups:

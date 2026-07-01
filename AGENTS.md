@@ -339,9 +339,16 @@ kubeconfig secret and drive the CAPI validation objects. `validate-image.sh` det
 mode (`IMOGEN_IN_CLUSTER=1`) and reads the builder kubeconfig from its secret instead of clusterctl.
 
 Because this kagent version still only sends the api-key header to Azure OpenAI, the agent keeps
-using a short lived Entra Bearer token on the `ModelConfig`. In AKS a `imogen-aoai-refresher`
-CronJob (the same image, workload identity) mints a fresh token every 30 minutes, patches it into
-the `ModelConfig`, and restarts the agent, so there are no manual reruns.
+using a short lived Entra token on the `ModelConfig`. That token is valid for about 24 hours, so in
+AKS a `imogen-aoai-refresher` CronJob (the same image, workload identity) mints a fresh one once a
+day at 07:00, an hour before the release watcher runs, patches it into the `ModelConfig`, and
+restarts the agent so it loads the new token. The agent caches the token at startup and does not
+re-read the `ModelConfig` live, so the restart is the only way to pick up a new token. A restart
+kills any in-flight agent turn, and a full reconcile runs far longer than the old 30-minute cadence,
+so the refresh now skips the restart whenever a release-watcher run is active: the running agent
+keeps its still-valid token and the next day's refresh restarts it. A kagent A2A turn runs
+server-side and survives an SSE client disconnect, so a dropped reconcile stream was never the
+cause of a stalled run; the mid-run agent restart was.
 
 The pipeline runs build, then validate, then promote. The agent validates a staging image before
 promoting and asks for approval before it promotes. For a hard gate, kagent supports

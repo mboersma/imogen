@@ -174,12 +174,15 @@ below). `hack/run-build-job.sh` applies `deploy/build-job.yaml` and returns imme
 Job name. `hack/build-status.sh <job>` reports the Job state (Pending, Running, Succeeded, Failed or
 NotFound). The `submit-build-job` and `get-build-status` MCP tools wrap the same two scripts.
 
-`run-build-job.sh` passes `kubernetes_deb_version` to image-builder, which installs it verbatim
-(`kubelet={{ kubernetes_deb_version }}`), so the value must match a real published package. The
-Debian revision is usually `-1.1`, but the release team occasionally rebuilds a patch's packages and
-bumps it (1.36.2 shipped as `-2.1`), so `imogen_k8s_deb_version` in `hack/lib.sh` looks the revision
-up from the community apt repo (`pkgs.k8s.io`) instead of assuming `-1.1`, falling back to `-1.1`
-only when the lookup fails.
+`run-build-job.sh` passes `kubernetes_deb_version` to image-builder for Ubuntu flavors, which installs
+it verbatim (`kubelet={{ kubernetes_deb_version }}`), so the value must match a real published package.
+The Debian revision is usually `-1.1`, but the release team occasionally rebuilds a patch's packages
+and bumps it (1.36.2 shipped as `-2.1`), so `imogen_k8s_deb_version` in `hack/lib.sh` looks the revision
+up from the community apt repo (`pkgs.k8s.io`) instead of assuming `-1.1`. The lookup retries a few
+times to ride out a transient network blip, then fails (non-zero) so `run-build-job.sh` aborts with a
+clear message rather than guessing a revision that would only break the build minutes later. Azure Linux
+uses `kubernetes_rpm_version` (plain patch, no revision) and Windows needs no package variable, so this
+lookup runs only for `ubuntu-*`.
 
 Packer builds in a temporary resource group it creates and, on success or a graceful failure,
 deletes itself. A hard failure (the pod killed, the node deallocated, an activeDeadline timeout) can

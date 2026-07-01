@@ -59,8 +59,12 @@ PACKER_FLAGS="--var sig_image_version=${SIG_VERSION} --var kubernetes_semver=${S
 case "$FLAVOR" in
 ubuntu-*)
   # Look up the exact published deb revision instead of assuming -1.1, which breaks
-  # when upstream rebuilds a patch's packages (1.36.2 shipped as -2.1).
-  DEB_VERSION="$(imogen_k8s_deb_version "$SERIES" "$SIG_VERSION")"
+  # when upstream rebuilds a patch's packages (1.36.2 shipped as -2.1). Abort if it
+  # cannot be resolved rather than launching a build doomed to fail minutes later.
+  if ! DEB_VERSION="$(imogen_k8s_deb_version "$SERIES" "$SIG_VERSION")"; then
+    echo "Aborting: no kubelet deb revision for ${SIG_VERSION}; not submitting a build that would fail." >&2
+    exit 1
+  fi
   echo "Using kubernetes_deb_version=${DEB_VERSION}"
   PACKER_FLAGS="${PACKER_FLAGS} --var kubernetes_deb_version=${DEB_VERSION}"
   ;;

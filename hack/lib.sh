@@ -59,17 +59,22 @@ imogen_builder_kubeconfig() {
 # for a patch release, read from the community apt repo index. The Debian package
 # revision is usually -1.1, but the release team occasionally rebuilds packages
 # and bumps it (1.36.2 shipped as -2.1), so hardcoding -1.1 makes those builds
-# fail with "no available installation candidate". Falls back to <patch>-1.1 when
-# the lookup fails (offline or repo unreachable), preserving the old behavior.
+# fail with "no available installation candidate". Retries the lookup a few times
+# to ride out a transient network blip, then fails (non-zero, message on stderr)
+# rather than guessing a revision that would only break the build minutes later.
 imogen_k8s_deb_version() {
-  local series="$1" patch="$2" url found
+  local series="$1" patch="$2" url found attempt
   url="https://pkgs.k8s.io/core:/stable:/${series}/deb/Packages.gz"
-  found="$(curl -fsSL "$url" 2>/dev/null | gunzip -c 2>/dev/null \
-    | awk '/^Package: kubelet$/{k=1;next} /^Package: /{k=0} k&&/^Version:/{print $2}' \
-    | grep -E "^${patch//./\\.}-" | sort -V | tail -1)"
-  if [[ -n "$found" ]]; then
-    echo "$found"
-  else
-    echo "${patch}-1.1"
-  fi
+  for attempt in 1 2 3; do
+    found="$(curl -fsSL "$url" 2>/dev/null | gunzip -c 2>/dev/null \
+      | awk '/^Package: kubelet$/{k=1;next} /^Package: /{k=0} k&&/^Version:/{print $2}' \
+      | grep -E "^${patch//./\\.}-" | sort -V | tail -1)"
+    if [[ -n "$found" ]]; then
+      echo "$found"
+      return 0
+    fi
+    [[ "$attempt" -lt 3 ]] && sleep $((attempt * 3))
+  done
+  echo "imogen_k8s_deb_version: could not resolve a kubelet deb revision for ${patch} in series ${series} from ${url}" >&2
+  return 1
 }

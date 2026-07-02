@@ -75,6 +75,16 @@ azurelinux-*)
   PACKER_FLAGS="${PACKER_FLAGS} --var kubernetes_rpm_version=${SIG_VERSION}"
   ;;
 windows-*)
+  # image-builder's default kubelet service manager on Windows ("windows_service",
+  # via sc.exe) installs a kubelet whose service command line ignores
+  # kubeadm-flags.env, so the CAPI kubeletExtraArgs (cloud-provider=external,
+  # register-with-taints) never take effect: the node registers without the
+  # cloud-provider "uninitialized" taint, the cloud controller never sets its
+  # providerID, and CAPI never links the node. Build with nssm instead, whose
+  # StartKubelet.ps1 reads KUBELET_KUBEADM_ARGS (this is what CAPZ reference images
+  # use, hence their `nssm set kubelet` postKubeadmCommand).
+  echo "Using windows_service_manager=nssm so CAPI kubelet args take effect"
+  PACKER_FLAGS="${PACKER_FLAGS} --var windows_service_manager=nssm"
   # A Windows node needs a matching sigwindowstools/kube-proxy HostProcess image
   # to run, so a Windows image is useless if that tag does not exist yet. Verify
   # it up front (as image-builder's own build-azure-sig workflow does) rather than

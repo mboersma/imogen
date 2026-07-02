@@ -104,8 +104,3 @@ spec:
       postKubeadmCommands:
       - nssm set kubelet start SERVICE_AUTO_START
       - powershell C:/defender-exclude-calico.ps1
-      users:
-      - groups: Administrators
-        name: capi
-        sshAuthorizedKeys:
-        - ""

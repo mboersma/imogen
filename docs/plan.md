@@ -257,8 +257,9 @@ how small the idle footprint can get.
 ## Default supported flavors
 Ubuntu 24.04, Ubuntu 26.04, Azure Linux 3, Windows Server 2022, Windows Server 2025.
 All are gen1 (gallery definitions V1). Azure Linux 3 will be replaced by Azure Linux 4 once it is
-officially released; Azure Linux 4 is gen2 (V2). The unattended release watcher currently reconciles
-the three Linux flavors; Windows validation is a manual fork pending a Windows validation nodepool.
+officially released; Azure Linux 4 is gen2 (V2). The unattended release watcher reconciles all five
+flavors. Windows validation joins a real Windows worker to the builder cluster (Calico HNS + a
+version-matched Windows kube-proxy + the Windows cloud-node-manager) and runs a HostProcess smoke pod.
 
 ---
 
@@ -387,7 +388,8 @@ In:
 - Basic observability/audit log of every tool action.
 
 Out (later phases):
-- Windows 2022/2025 (name-length, SSH-in-KubeadmConfig, longer builds) — Phase 2.
+- ~~Windows 2022/2025~~ — done (Phase 2): full node-join validation with Calico HNS, a version-matched
+  Windows kube-proxy, the Windows cloud-node-manager, and a HostProcess smoke pod.
 - Ubuntu 26.04, Azure Linux 4 — Phase 2/3.
 - Autoscaler scale-from-zero for builder pool — Phase 2.
 - CVE-triggered rebuilds + EOL cleanup automation — Phase 3.

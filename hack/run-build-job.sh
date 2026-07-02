@@ -74,6 +74,26 @@ azurelinux-*)
   echo "Using kubernetes_rpm_version=${SIG_VERSION}"
   PACKER_FLAGS="${PACKER_FLAGS} --var kubernetes_rpm_version=${SIG_VERSION}"
   ;;
+windows-*)
+  # A Windows node needs a matching sigwindowstools/kube-proxy HostProcess image
+  # to run, so a Windows image is useless if that tag does not exist yet. Verify
+  # it up front (as image-builder's own build-azure-sig workflow does) rather than
+  # publishing an image that cannot later join a cluster.
+  KP_IMAGE="sigwindowstools/kube-proxy"
+  KP_TAG="${SEMVER}-calico-hostprocess"
+  echo "Checking the Windows kube-proxy image ${KP_IMAGE}:${KP_TAG} exists"
+  KP_TOKEN="$(curl -fsSL "https://auth.docker.io/token?service=registry.docker.io&scope=repository:${KP_IMAGE}:pull" | python3 -c 'import sys,json; print(json.load(sys.stdin)["token"])')"
+  KP_STATUS="$(curl -s -o /dev/null -w "%{http_code}" \
+    -H "Authorization: Bearer ${KP_TOKEN}" \
+    -H "Accept: application/vnd.docker.distribution.manifest.v2+json" \
+    -H "Accept: application/vnd.docker.distribution.manifest.list.v2+json" \
+    "https://registry-1.docker.io/v2/${KP_IMAGE}/manifests/${KP_TAG}")"
+  if [[ "$KP_STATUS" != "200" ]]; then
+    echo "Aborting: ${KP_IMAGE}:${KP_TAG} not found (HTTP ${KP_STATUS}); not building a Windows image that could not run as a node." >&2
+    exit 1
+  fi
+  echo "Windows kube-proxy image found"
+  ;;
 esac
 
 # Machine pool operations are on the management cluster; on a workstation select

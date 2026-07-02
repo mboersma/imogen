@@ -1,0 +1,111 @@
+# Windows validation MachineDeployment: boots one Windows node from a staging
+# gallery image so we can assert it joins, runs the expected kubelet, and can
+# run a pod. Applied (with substitutions) and torn down by hack/validate-image.sh.
+# CAPZ creates the matching __NAME__-azure-json secret automatically.
+#
+# Windows nodes need the full Windows networking stack on the builder cluster
+# (Calico windowsDataplane: HNS, the version-matched kube-proxy-windows
+# DaemonSet, and the Windows cloud-node-manager) to reach Ready. The builder
+# setup installs the first and the last; validate-image.sh applies the
+# version-matched kube-proxy-windows per run.
+apiVersion: cluster.x-k8s.io/v1beta1
+kind: MachineDeployment
+metadata:
+  name: __NAME__
+  namespace: default
+  annotations:
+    # The validation worker is intentionally a different (often older) minor than
+    # the builder control plane so one cluster can validate every supported minor.
+    # CAPI's MachineSet preflight checks block that, so skip the version-skew
+    # checks. CAPI propagates these top-level annotations to the generated
+    # MachineSet.
+    machineset.cluster.x-k8s.io/skip-preflight-checks: "KubeadmVersionSkew,KubernetesVersionSkew"
+spec:
+  clusterName: __CLUSTER__
+  replicas: 1
+  selector:
+    matchLabels: null
+  template:
+    metadata:
+      annotations:
+        # Skip node drain on teardown. The validation node may lose CNI once its
+        # add-ons are removed, so draining would hang.
+        machine.cluster.x-k8s.io/exclude-node-draining: "true"
+    spec:
+      clusterName: __CLUSTER__
+      version: __K8S_VERSION__
+      bootstrap:
+        configRef:
+          apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+          kind: KubeadmConfigTemplate
+          name: __NAME__
+      infrastructureRef:
+        apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+        kind: AzureMachineTemplate
+        name: __NAME__
+---
+apiVersion: infrastructure.cluster.x-k8s.io/v1beta1
+kind: AzureMachineTemplate
+metadata:
+  name: __NAME__
+  namespace: default
+  annotations:
+    runtime: containerd
+spec:
+  template:
+    metadata:
+      annotations:
+        runtime: containerd
+    spec:
+      vmSize: __VM_SIZE__
+      sshPublicKey: ""
+      osDisk:
+        diskSizeGB: 128
+        managedDisk:
+          storageAccountType: Premium_LRS
+        osType: Windows
+      image:
+        computeGallery:
+          subscriptionID: __SUBSCRIPTION_ID__
+          resourceGroup: __RESOURCE_GROUP__
+          gallery: __GALLERY__
+          name: __IMAGE_DEFINITION__
+          version: __IMAGE_VERSION__
+---
+apiVersion: bootstrap.cluster.x-k8s.io/v1beta1
+kind: KubeadmConfigTemplate
+metadata:
+  name: __NAME__
+  namespace: default
+spec:
+  template:
+    spec:
+      files:
+      - contentFrom:
+          secret:
+            key: worker-node-azure.json
+            name: __NAME__-azure-json
+        owner: root:root
+        path: c:/k/azure.json
+        permissions: "0644"
+      - content: |-
+          Add-MpPreference -ExclusionProcess C:/opt/cni/bin/calico.exe
+          Add-MpPreference -ExclusionProcess C:/opt/cni/bin/calico-ipam.exe
+        path: C:/defender-exclude-calico.ps1
+        permissions: "0744"
+      joinConfiguration:
+        nodeRegistration:
+          criSocket: npipe:////./pipe/containerd-containerd
+          kubeletExtraArgs:
+            cloud-provider: external
+            register-with-taints: node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule
+            windows-priorityclass: ABOVE_NORMAL_PRIORITY_CLASS
+          name: '{{ ds.meta_data["local_hostname"] }}'
+      postKubeadmCommands:
+      - nssm set kubelet start SERVICE_AUTO_START
+      - powershell C:/defender-exclude-calico.ps1
+      users:
+      - groups: Administrators
+        name: capi
+        sshAuthorizedKeys:
+        - ""

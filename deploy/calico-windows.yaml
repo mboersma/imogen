@@ -1,0 +1,45 @@
+# Windows Calico prerequisites for the builder workload cluster. Applied by
+# hack/setup-builder-cluster.sh alongside the tigera-operator install. Harmless
+# when no Windows node is present. Mirrors CAPZ
+# templates/addons/windows/calico/calico.yaml.
+#
+# strictAffinity is required for Windows Calico; the calico-static-rules
+# ConfigMap blocks pod egress to the Azure wireserver (168.63.129.16:80).
+apiVersion: crd.projectcalico.org/v1
+kind: IPAMConfig
+metadata:
+  name: default
+spec:
+  autoAllocateBlocks: true
+  strictAffinity: true
+---
+kind: ConfigMap
+apiVersion: v1
+metadata:
+  name: calico-static-rules
+  namespace: calico-system
+  labels:
+    tier: node
+    app: calico
+data:
+  static-rules.json: |
+    {
+      "Provider": "azure",
+      "Version": "0.1",
+      "Rules": [
+        {
+          "Name": "EndpointPolicy",
+          "Rule": {
+              "Id": "wireserver",
+              "Type": "ACL",
+              "Protocol": 6,
+              "Action": "Block",
+              "Direction": "Out",
+              "RemoteAddresses": "168.63.129.16/32",
+              "RemotePorts": "80",
+              "Priority": 200,
+              "RuleType": "Switch"
+            }
+          }
+      ]
+    }

@@ -78,7 +78,10 @@ build pool with `hack/scale-builder.sh <count>` and tear it down with `hack/tear
 
 To validate a staging image, run `hack/validate-image.sh <flavor> <version>`, for example
 `hack/validate-image.sh ubuntu-2404 1.34.9`. It boots a node from the image on the builder
-cluster, checks the kubelet version and runtime, runs a smoke pod, then tears it down.
+cluster, checks the kubelet version and runtime, runs a smoke pod, then tears it down. Windows
+flavors (`windows-2022-containerd`, `windows-2025-containerd`) join a real Windows worker using the
+builder cluster's Windows networking (Calico HNS + a version-matched kube-proxy + cloud-node-manager)
+and run a HostProcess smoke pod.
 
 ## Development
 

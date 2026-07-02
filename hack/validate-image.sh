@@ -47,7 +47,30 @@ NODE_SIZE="${IMOGEN_BUILDER_NODE_SIZE:-Standard_D2s_v3}"
 IMAGE_VERSION="${VERSION#v}"
 K8S_VERSION="v${IMAGE_VERSION}"
 IMAGE_DEFINITION="capi-${FLAVOR}"
-NAME="${CLUSTER}-validate"
+
+# Windows validation differs from Linux: it uses a Windows MachineDeployment
+# template, applies a version-matched Windows kube-proxy DaemonSet (the builder
+# already carries Calico HNS and the Windows cloud-node-manager), waits longer
+# for the Windows networking stack to converge, and runs a HostProcess smoke pod.
+case "$FLAVOR" in
+windows-*)
+  OS_TYPE="windows"
+  TEMPLATE="$DIR/deploy/validation-machinedeployment-windows.yaml"
+  NAME="${CLUSTER}-vwin"
+  READY_TIMEOUT="1800s"
+  case "$FLAVOR" in
+  *2025*) SMOKE_IMAGE="mcr.microsoft.com/windows/nanoserver:ltsc2025" ;;
+  *) SMOKE_IMAGE="mcr.microsoft.com/windows/nanoserver:ltsc2022" ;;
+  esac
+  ;;
+*)
+  OS_TYPE="linux"
+  TEMPLATE="$DIR/deploy/validation-machinedeployment.yaml"
+  NAME="${CLUSTER}-validate"
+  READY_TIMEOUT="600s"
+  SMOKE_IMAGE="registry.k8s.io/busybox:1.27"
+  ;;
+esac
 
 # The image must be replicated to the builder cluster's region. The build
 # publishes to the gallery's home region, so add the builder region if missing.
@@ -76,6 +99,9 @@ cleanup() {
   fi
   echo "Tearing down $NAME"
   kubectl --kubeconfig "$WL_KUBECONFIG" delete pod "${NAME}-smoke" -n "$SMOKE_NS" --ignore-not-found >/dev/null 2>&1 || true
+  if [[ "$OS_TYPE" == "windows" ]]; then
+    kubectl --kubeconfig "$WL_KUBECONFIG" delete daemonset kube-proxy-windows -n kube-system --ignore-not-found >/dev/null 2>&1 || true
+  fi
   kubectl delete machinedeployment "$NAME" -n "$CAPI_NS" --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete kubeadmconfigtemplate "$NAME" -n "$CAPI_NS" --ignore-not-found >/dev/null 2>&1 || true
   kubectl delete azuremachinetemplate "$NAME" -n "$CAPI_NS" --ignore-not-found >/dev/null 2>&1 || true
@@ -94,7 +120,16 @@ sed \
   -e "s|__GALLERY__|${STAGING_GALLERY}|g" \
   -e "s|__IMAGE_DEFINITION__|${IMAGE_DEFINITION}|g" \
   -e "s|__IMAGE_VERSION__|${IMAGE_VERSION}|g" \
-  "$DIR/deploy/validation-machinedeployment.yaml" | kubectl apply -n "$CAPI_NS" -f -
+  "$TEMPLATE" | kubectl apply -n "$CAPI_NS" -f -
+
+# Windows nodes need a version-matched kube-proxy running as a HostProcess
+# DaemonSet. It targets Windows nodes only, so it waits with zero pods until the
+# validation node joins, then schedules. Torn down with the rest on exit.
+if [[ "$OS_TYPE" == "windows" ]]; then
+  echo "Applying Windows kube-proxy ${K8S_VERSION}"
+  sed -e "s|__KUBERNETES_VERSION__|${K8S_VERSION}|g" \
+    "$DIR/deploy/kube-proxy-windows.yaml" | kubectl --kubeconfig "$WL_KUBECONFIG" apply -f -
+fi
 
 echo "Waiting for the validation machine to get a node (this boots a VM)"
 NODE=""
@@ -111,7 +146,7 @@ fi
 echo "Node: $NODE"
 
 echo "Waiting for $NODE to be Ready"
-if ! kubectl --kubeconfig "$WL_KUBECONFIG" wait --for=condition=Ready "node/${NODE}" --timeout=600s; then
+if ! kubectl --kubeconfig "$WL_KUBECONFIG" wait --for=condition=Ready "node/${NODE}" --timeout="$READY_TIMEOUT"; then
   echo "FAIL: $NODE did not become Ready" >&2
   exit 1
 fi
@@ -130,14 +165,23 @@ if [[ "$RUNTIME" != containerd://* ]]; then
 fi
 
 echo "Running a smoke pod on $NODE"
-# hostNetwork so the smoke does not wait on the CNI initializing on the fresh
-# node; we are validating the image's kubelet and containerd, not pod networking.
-kubectl --kubeconfig "$WL_KUBECONFIG" run "${NAME}-smoke" -n "$SMOKE_NS" \
-  --image=registry.k8s.io/busybox:1.27 --restart=Never \
-  --overrides="{\"spec\":{\"nodeName\":\"${NODE}\",\"hostNetwork\":true,\"tolerations\":[{\"operator\":\"Exists\"}]}}" \
-  --command -- /bin/sh -c 'echo smoke-ok'
+# hostNetwork so the smoke does not wait on the CNI on the fresh node; we are
+# validating the image's kubelet and container runtime, not pod networking. On
+# Windows this is a HostProcess pod (the Windows analog of hostNetwork), which
+# runs the command directly on the host.
+if [[ "$OS_TYPE" == "windows" ]]; then
+  kubectl --kubeconfig "$WL_KUBECONFIG" run "${NAME}-smoke" -n "$SMOKE_NS" \
+    --image="$SMOKE_IMAGE" --restart=Never \
+    --overrides="{\"spec\":{\"nodeName\":\"${NODE}\",\"hostNetwork\":true,\"securityContext\":{\"windowsOptions\":{\"hostProcess\":true,\"runAsUserName\":\"NT AUTHORITY\\\\SYSTEM\"}},\"nodeSelector\":{\"kubernetes.io/os\":\"windows\"},\"tolerations\":[{\"operator\":\"Exists\"}]}}" \
+    --command -- cmd /c echo smoke-ok
+else
+  kubectl --kubeconfig "$WL_KUBECONFIG" run "${NAME}-smoke" -n "$SMOKE_NS" \
+    --image="$SMOKE_IMAGE" --restart=Never \
+    --overrides="{\"spec\":{\"nodeName\":\"${NODE}\",\"hostNetwork\":true,\"tolerations\":[{\"operator\":\"Exists\"}]}}" \
+    --command -- /bin/sh -c 'echo smoke-ok'
+fi
 if ! kubectl --kubeconfig "$WL_KUBECONFIG" wait --for=jsonpath='{.status.phase}'=Succeeded \
-  "pod/${NAME}-smoke" -n "$SMOKE_NS" --timeout=120s; then
+  "pod/${NAME}-smoke" -n "$SMOKE_NS" --timeout=180s; then
   echo "FAIL: smoke pod did not succeed" >&2
   kubectl --kubeconfig "$WL_KUBECONFIG" describe pod "${NAME}-smoke" -n "$SMOKE_NS" >&2 || true
   exit 1

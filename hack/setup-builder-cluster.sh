@@ -125,11 +125,18 @@ clusterctl get kubeconfig "$CLUSTER" > "$WL_KUBECONFIG"
 echo "Workload kubeconfig written to $WL_KUBECONFIG"
 
 echo "Installing Calico CNI"
+# Windows Calico needs the control-plane endpoint (kubernetesServiceEndpoint) to
+# find the API server; it is cluster-specific so pass it here rather than in the
+# values file. Harmless for Linux-only clusters.
+CP_HOST="$(kubectl get cluster "$CLUSTER" -o jsonpath='{.spec.controlPlaneEndpoint.host}')"
+CP_PORT="$(kubectl get cluster "$CLUSTER" -o jsonpath='{.spec.controlPlaneEndpoint.port}')"
 helm repo add projectcalico https://docs.tigera.io/calico/charts >/dev/null 2>&1 || true
 helm repo update projectcalico >/dev/null
 helm --kubeconfig "$WL_KUBECONFIG" upgrade --install calico projectcalico/tigera-operator \
   --version "$CALICO_VERSION" \
   -f "$DIR/deploy/calico-values.yaml" \
+  --set-string "kubernetesServiceEndpoint.host=$CP_HOST" \
+  --set-string "kubernetesServiceEndpoint.port=$CP_PORT" \
   --namespace tigera-operator --create-namespace
 
 echo "Installing the external Azure cloud provider"
@@ -157,6 +164,17 @@ while true; do
   sleep 15
 done
 
+# Apply the Windows Calico prerequisites (strictAffinity IPAMConfig + the
+# wireserver-blocking static rules). Inert without Windows nodes. Retry because
+# the calico-system namespace and CRDs appear only once the operator reconciles.
+echo "Applying Windows Calico prerequisites"
+for _ in $(seq 1 20); do
+  if kubectl --kubeconfig "$WL_KUBECONFIG" apply -f "$DIR/deploy/calico-windows.yaml" >/dev/null 2>&1; then
+    echo "  applied"
+    break
+  fi
+  sleep 15
+done
 # Assign the build managed identity to the worker VMSS so image-builder Jobs can
 # authenticate with it through IMDS (no stored secret). Best effort: the build
 # identity comes from hack/setup-build-identity.sh. The assignment is additive,

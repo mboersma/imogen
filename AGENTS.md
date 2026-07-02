@@ -55,9 +55,11 @@ image definitions are hyper-v-generation V1. The version variable is OS-specific
 `kubernetes_deb_version` (patch plus package revision), Azure Linux pins `kubernetes_rpm_version`
 (plain patch), and Windows downloads binaries by semver and needs neither; `hack/run-build-job.sh`
 selects the right one per flavor. Azure Linux 3 is gen1; when Azure Linux 4 is officially released it
-replaces 3 and is gen2 (definitions would be V2). The release watcher only builds the Linux flavors
-today (`ubuntu-2404 ubuntu-2604 azurelinux-3`); Windows validation is still a manual fork, so the two
-Windows flavors are defined and buildable but not yet in the unattended watcher scope.
+replaces 3 and is gen2 (definitions would be V2). The release watcher builds all five flavors
+(`ubuntu-2404 ubuntu-2604 azurelinux-3 windows-2022-containerd windows-2025-containerd`). Windows
+validation joins a real Windows worker to the builder cluster (see Image validation below), so Windows
+builds are longer than Linux; a Windows build is refused up front if the matching
+`sigwindowstools/kube-proxy` HostProcess image does not exist yet.
 
 ## Key upstream facts to respect
 
@@ -234,13 +236,26 @@ release-watcher only ever reports candidates.
 
 `hack/validate-image.sh <flavor> <version>` boots one node from a staging gallery image on the
 builder cluster and checks it. It attaches a one-node MachineDeployment whose
-`image.computeGallery` points at the staging version (`deploy/validation-machinedeployment.yaml`),
-waits for the node to be Ready, asserts the kubelet version matches and the runtime is containerd,
-then runs a `hostNetwork` smoke pod. The pod uses host networking so it does not wait on Calico
-initializing on the fresh node. The validation node is annotated to skip drain on teardown so a
+`image.computeGallery` points at the staging version (`deploy/validation-machinedeployment.yaml`
+for Linux, `deploy/validation-machinedeployment-windows.yaml` for Windows), waits for the node to be
+Ready, asserts the kubelet version matches and the runtime is containerd, then runs a `hostNetwork`
+smoke pod. The pod uses host networking so it does not wait on Calico initializing on the fresh
+node. The validation node is annotated to skip drain on teardown so a
 node without working CNI does not block deletion. Everything is torn down on exit unless
 `IMOGEN_VALIDATE_KEEP=1` is set. The script replicates the staging image to the builder region
 (`IMOGEN_BUILDER_LOCATION`) first if needed, since builds publish only to the gallery home region.
+
+Windows validation is a full node join, not a lighter VM smoke test: a Windows worker only reaches
+Ready with the whole Windows networking stack in place. The builder cluster carries Calico with
+`windowsDataplane: HNS` (`deploy/calico-values.yaml`, plus the strictAffinity `IPAMConfig` and
+wireserver-blocking rules in `deploy/calico-windows.yaml`) and the Windows `cloud-node-manager` that
+the cloud-provider-azure chart ships, both applied by `hack/setup-builder-cluster.sh`. Windows Calico
+also needs the control-plane endpoint (`kubernetesServiceEndpoint`), passed to the Calico Helm install
+by that script. Because the Windows kube-proxy image is version-specific and the builder validates
+several minors, `validate-image.sh` applies a version-matched `deploy/kube-proxy-windows.yaml`
+HostProcess DaemonSet per run and tears it down after. The Windows smoke pod is a HostProcess pod (the
+Windows analog of `hostNetwork`) built from a `nanoserver` image matching the OS. Windows nodes take
+longer to converge, so the Ready wait is 1800s for Windows versus 600s for Linux.
 
 A full validation takes several minutes, which is longer than the MCP client timeout, so the
 `validate-image` tool does not run the script inline. Like `submit-build-job` and `promote-image`, it
@@ -276,7 +291,9 @@ which keeps CAPZ workload-identity auth working across rebuilds.
 
 `hack/setup-builder-cluster.sh` generates a self-managed "builder" workload cluster with one VMSS
 MachinePool (`clusterctl generate cluster --flavor machinepool`), then installs Calico
-(`deploy/calico-values.yaml`) and the external Azure cloud provider so the nodes become Ready. The
+(`deploy/calico-values.yaml`, with `windowsDataplane: HNS` and the Windows prerequisites in
+`deploy/calico-windows.yaml` so the same cluster can validate Windows images) and the external Azure
+cloud provider so the nodes become Ready. The
 builder runs in `IMOGEN_BUILDER_LOCATION` (falling back to the mgmt region, then the gallery region),
 so it can sit in a different region from the management cluster. That matters because the CAPI
 community-gallery reference image must be replicated to the builder region, and capacity-constrained

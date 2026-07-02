@@ -1,5 +1,11 @@
-# Minimal Calico install for the builder workload cluster. VXLAN so we don't
-# need BGP or cloud routing. Pod CIDR matches the cluster's 192.168.0.0/16.
+# Calico install for the builder workload cluster. VXLAN so we don't need BGP or
+# cloud routing. Pod CIDR matches the cluster's 192.168.0.0/16.
+#
+# windowsDataplane: HNS lets the same tigera-operator serve Windows nodes (needed
+# for Windows image validation); it is inert for Linux-only clusters. Windows
+# Calico also needs kubernetesServiceEndpoint (the control-plane host/port, passed
+# by hack/setup-builder-cluster.sh via --set since it is cluster-specific),
+# serviceCIDRs, and the dnsConfig below (see projectcalico/calico#9536).
 installation:
   cni:
     type: Calico
@@ -7,10 +13,19 @@ installation:
       type: Calico
   calicoNetwork:
     bgp: Disabled
+    windowsDataplane: HNS
     mtu: 1350
     ipPools:
     - cidr: 192.168.0.0/16
       encapsulation: VXLAN
+  serviceCIDRs:
+    - 10.96.0.0/12
+dnsConfig:
+  nameservers:
+    - 127.0.0.53
+  options:
+    - name: edns0
+    - name: trust-ad
 tolerations:
   - effect: NoExecute
     operator: Exists

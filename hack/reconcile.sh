@@ -46,35 +46,34 @@ TIMEOUT="${IMOGEN_RECONCILE_TIMEOUT:-5400}"
 FLAVORS_CSV="$(echo "$FLAVORS" | tr ', ' '\n' | sed '/^$/d' | paste -sd ', ' -)"
 
 if [[ "$BUILD" == "1" ]]; then
-  BUILD_STEP="4. For each in-scope version missing from BOTH galleries: call submit-build-job (at \
-most ${MAX_PER_RUN} per flavor this run), then keep polling get-build-status until it reports \
-Succeeded or Failed. Builds take tens of minutes, so keep waiting and polling on your own. Do NOT \
-stop to ask whether you should keep waiting, and do NOT end your turn while a build is Pending or \
-Running. When it Succeeds the new version is in staging, so handle it like step 3."
+  BUILD_STEP="Work items with action=build are missing from both galleries. For each (at most \
+${MAX_PER_RUN} per flavor this run): call submit-build-job for its flavor and version, then keep \
+polling get-build-status until it reports Succeeded or Failed. Builds take tens of minutes, so keep \
+waiting and polling on your own. Do NOT stop to ask whether you should keep waiting, and do NOT end \
+your turn while a build is Pending or Running. When it Succeeds the new version is in staging, so then \
+validate and promote it exactly like an action=validate-promote item below."
 else
-  BUILD_STEP="4. Do NOT submit any new builds this run. If an in-scope version is missing from both \
-galleries, just report that it needs a build."
+  BUILD_STEP="Do NOT submit any new builds this run. For each work item with action=build, just report \
+that it needs a build."
 fi
 
 if [[ "$AUTO_PROMOTE" == "1" ]]; then
-  PROMOTE_STEP="3. For each in-scope version that is in staging but NOT yet in the community gallery: \
-it is already built, so call validate-image on it, then keep polling get-validation-status until it \
-reports Succeeded or Failed. This reconcile runs unattended on a schedule and \
-no human is available, so if validation Succeeded you are authorized to promote it without asking for \
-approval: call promote-image directly, then keep polling get-promote-status until it reports \
-Succeeded before treating the version as promoted. If validation Failed, do NOT promote; report the \
-failure and move on. Finish one version completely (poll its validation to a terminal state, then \
-promote and poll the promotion to Succeeded) before you start another version or flavor, and if you \
-launched other work meanwhile always come back and poll every validation and promotion you started \
-until each reaches a terminal state. Keep polling any long-running tool on your own; do NOT end your \
-turn while one is still working."
+  PROMOTE_STEP="Work items with action=validate-promote are already built into staging and only need \
+validation and promotion. For each: call validate-image on it, then keep polling get-validation-status \
+until it reports Succeeded or Failed. This reconcile runs unattended on a schedule and no human is \
+available, so if validation Succeeded you are authorized to promote it without asking for approval: call \
+promote-image directly, then keep polling get-promote-status until it reports Succeeded before treating \
+the version as promoted. If validation Failed, do NOT promote; report the failure and move on. Finish one \
+work item completely (poll its validation to a terminal state, then promote and poll the promotion to \
+Succeeded) before you start another, and if you launched other work meanwhile always come back and poll \
+every validation and promotion you started until each reaches a terminal state. Keep polling any \
+long-running tool on your own; do NOT end your turn while one is still working."
 else
-  PROMOTE_STEP="3. For each in-scope version that is in staging but NOT yet in the community gallery: \
-it is already built, so call validate-image on it, then keep polling get-validation-status until it \
-reports Succeeded or Failed. If validation Succeeded, call notify with level=approval \
-to request that a human approve promoting it, but do NOT promote this run: no human is available to approve \
-right now. Keep polling any long-running tool on your own; do NOT end your turn while one \
-is still working."
+  PROMOTE_STEP="Work items with action=validate-promote are already built into staging and only need \
+validation and promotion. For each: call validate-image on it, then keep polling get-validation-status \
+until it reports Succeeded or Failed. If validation Succeeded, call notify with level=approval to request \
+that a human approve promoting it, but do NOT promote this run: no human is available to approve right \
+now. Keep polling any long-running tool on your own; do NOT end your turn while one is still working."
 fi
 
 PROMPT="You are the imogen image reconciler. Reconcile the Azure community gallery \
@@ -85,18 +84,17 @@ validated and promoted to the community gallery. So a version already in staging
 only needs validation and promotion.
 
 Steps:
-1. Call list-k8s-releases with minorCount ${MINORS} to get the latest stable patch \
-for each recent Kubernetes minor version. These are the in-scope versions.
-2. For each flavor, call list-gallery-versions for BOTH the staging and the community stage to see \
-which image versions exist in each. Then, for each flavor, check every in-scope version against the \
-community list and act on every one that is missing; do not stop after the newest.
-${PROMOTE_STEP}
-${BUILD_STEP}
-5. If every in-scope version is already in the community gallery, say so.
-6. Call gc-eol-images as a dry run (apply=false) for the community gallery to list any minors past their \
+1. Call list-reconcile-plan with flavors [${FLAVORS_CSV}] and minorCount ${MINORS}. It does the gap \
+analysis for you and returns an explicit work list: each item has a flavor, a version, and an action of \
+either build or validate-promote. Trust this list completely; do NOT recompute the gap yourself or skip \
+items. If it returns upToDate true (an empty work list), every in-scope version is already in the \
+community gallery, so skip to step 4 and say so.
+2. ${PROMOTE_STEP}
+3. ${BUILD_STEP}
+4. Call gc-eol-images as a dry run (apply=false) for the community gallery to list any minors past their \
 upstream end-of-life grace period. Report them as retirement candidates, but do NOT delete anything: retirement \
 needs human approval, so leave apply=true for an operator.
-7. Finally, call notify once with a short summary of what you found and did this run (level=info). Your \
+5. Finally, call notify once with a short summary of what you found and did this run (level=info). Your \
 summary must describe only what the tools actually confirmed: never say a version was built, validated, \
 or promoted unless the corresponding status tool returned Succeeded for it this run. If a step did not \
 finish or you did not complete it, say so plainly rather than assuming success. If \

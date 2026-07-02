@@ -34,6 +34,7 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 | Tool (MCP)                  | Action |
 |-----------------------------|--------|
 | `list-k8s-releases`         | Enumerate upstream Kubernetes releases in scope |
+| `list-reconcile-plan`       | Diff in-scope releases against both galleries per flavor; return the exact work list (build vs validate-promote) |
 | `list-gallery-versions`     | List image versions already in the community gallery |
 | `submit-build-job`          | Run image-builder (`build-azure-sig-<os>-<ver>`) → staging gallery |
 | `get-build-status`          | Report a build container's state (Running/Succeeded/Failed) |
@@ -385,9 +386,13 @@ as `promote-image`.
 `deploy/release-watcher.yaml` is a daily CronJob (`imogen-release-watcher`, same tool server image)
 that runs `hack/reconcile.sh`. The script is thin on purpose: it posts a standing reconcile prompt
 to the agent's A2A endpoint over JSON-RPC `message/stream` and lets the agent do the work. The agent
-calls `list-k8s-releases` and `list-gallery-versions`, computes which upstream versions are missing
-from the community gallery, and drives `submit-build-job` → `get-build-status` → `validate-image` →
-`get-validation-status` → `promote-image` → `get-promote-status`. The watcher runs unattended: because no human is present,
+calls `list-reconcile-plan`, which does the per-flavor gap analysis deterministically in Go (it diffs
+the in-scope upstream releases against both galleries and returns an explicit work list of `build` and
+`validate-promote` items), then drives `submit-build-job` → `get-build-status` → `validate-image` →
+`get-validation-status` → `promote-image` → `get-promote-status` for each item. The gap analysis lives
+in the tool rather than the model because the model reliably mis-computed the set difference once more
+than one flavor was in scope (it would list the galleries correctly, then declare everything present
+and do nothing). The watcher runs unattended: because no human is present,
 the reconcile prompt authorizes the agent to promote a validated image without approval
 (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`). Interactive runs through the kagent UI still hit the approval
 gate in the agent's system message, and `gc-eol-images` is only ever a dry run here. Because kagent

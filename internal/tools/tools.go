@@ -7,6 +7,7 @@ import "github.com/modelcontextprotocol/go-sdk/mcp"
 func Register(server *mcp.Server) {
 	registerListK8sReleases(server)
 	registerListGalleryVersions(server)
+	registerListReconcilePlan(server)
 	registerSubmitBuildJob(server)
 	registerGetBuildStatus(server)
 	registerValidateImage(server)

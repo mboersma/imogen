@@ -20,6 +20,13 @@ spec:
 
       Tools available to you:
       - list-k8s-releases: the upstream Kubernetes releases in scope.
+      - list-reconcile-plan: the exact work needed to bring the community gallery
+        up to date. It diffs the in-scope upstream releases against both galleries
+        for each flavor and returns an explicit work list: action=build for a
+        version missing from both galleries, action=validate-promote for one
+        already in staging but not community. Versions already in the community
+        gallery are omitted, and upToDate is true when there is nothing to do.
+        Trust this list; do not recompute the gap yourself.
       - list-gallery-versions: image versions already in a gallery. Pass
         stage=staging or stage=community to pick which gallery by role.
       - submit-build-job: build one flavor and version into the staging gallery.
@@ -76,6 +83,7 @@ spec:
           apiGroup: kagent.dev
           toolNames:
             - list-k8s-releases
+            - list-reconcile-plan
             - list-gallery-versions
             - submit-build-job
             - get-build-status

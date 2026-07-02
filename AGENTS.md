@@ -403,6 +403,14 @@ or `IMOGEN_RECONCILE_TIMEOUT` (default 5400s) passes. Other tunables are env var
 `IMOGEN_RECONCILE_FLAVORS`, `IMOGEN_RECONCILE_MINORS`, `IMOGEN_RECONCILE_MAX`,
 `IMOGEN_RECONCILE_AUTO_PROMOTE`.
 
+While a build, validation or promotion is in flight the agent polls its status tool in a tight loop,
+and each poll is a full LLM turn that resends the growing conversation. Left unthrottled that loop can
+exhaust the Azure OpenAI deployment's tokens-per-minute quota and fail the run with a 429. The model
+cannot pace itself (it has no way to sleep and just calls again immediately), so the pacing lives in
+the tools: `get-build-status`, `get-validation-status` and `get-promote-status` each block for
+`IMOGEN_POLL_DELAY_SECONDS` (default 15, and well under the MCP client timeout) before returning, which
+caps the loop rate deterministically. Set it to 0 to disable.
+
 The mgmt-side CAPI objects (the builder `MachinePool`, validation `MachineDeployment`) live in the
 `default` namespace, so `run-build-job.sh` and `validate-image.sh` name that namespace explicitly
 (`IMOGEN_CAPI_NAMESPACE`, default `default`). The tool server pod's own namespace is `kagent`, so

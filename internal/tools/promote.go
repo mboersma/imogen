@@ -117,6 +117,7 @@ func registerGetPromoteStatus(server *mcp.Server) {
 		if in.Flavor == "" || in.Version == "" {
 			return nil, getPromoteStatusOutput{}, fmt.Errorf("flavor and version are required")
 		}
+		throttlePoll(ctx)
 		rg := envOr(in.ResourceGroup, "IMOGEN_RESOURCE_GROUP")
 		target := envOr(in.TargetGallery, "IMOGEN_COMMUNITY_GALLERY")
 		if rg == "" || target == "" {

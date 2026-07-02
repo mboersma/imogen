@@ -100,10 +100,11 @@ func registerGetValidationStatus(server *mcp.Server) {
 	auditedTool(server, &mcp.Tool{
 		Name:        "get-validation-status",
 		Description: "Report the state of an image validation started by validate-image: Running, Succeeded, Failed or NotFound. Poll this until the state is Succeeded or Failed.",
-	}, func(_ context.Context, _ *mcp.CallToolRequest, in getValidationStatusInput) (*mcp.CallToolResult, getValidationStatusOutput, error) {
+	}, func(ctx context.Context, _ *mcp.CallToolRequest, in getValidationStatusInput) (*mcp.CallToolResult, getValidationStatusOutput, error) {
 		if in.Flavor == "" || in.Version == "" {
 			return nil, getValidationStatusOutput{}, fmt.Errorf("flavor and version are required")
 		}
+		throttlePoll(ctx)
 		version := strings.TrimPrefix(in.Version, "v")
 		logPath, donePath := validateStatePaths(in.Flavor, version)
 

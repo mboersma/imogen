@@ -83,6 +83,7 @@ func registerGetBuildStatus(server *mcp.Server) {
 		if in.Job == "" {
 			return nil, getBuildStatusOutput{}, fmt.Errorf("job is required")
 		}
+		throttlePoll(ctx)
 		script := os.Getenv("IMOGEN_BUILD_STATUS_SCRIPT")
 		if script == "" {
 			script = defaultBuildStatusScript

@@ -98,9 +98,10 @@ trap 'rm -f "$WL_KUBECONFIG"' EXIT
 
 echo "Applying build Job $NAME (target $TARGET) to $CLUSTER"
 # A Job spec is immutable, so re-running a build for the same flavor and version
-# (after an earlier failure) would fail "field is immutable" on apply. Delete any
-# prior Job of this name first so the build always starts fresh.
-kubectl --kubeconfig "$WL_KUBECONFIG" delete job "$NAME" --ignore-not-found >/dev/null
+# (after an earlier failure, or to rebuild and replace an image) would fail
+# "field is immutable" on a plain apply. Force-recreate so the build always starts
+# fresh; replace --force deletes any prior Job of this name and recreates it in one
+# step, and still creates the Job when none exists.
 sed \
   -e "s|__NAME__|${NAME}|g" \
   -e "s|__FLAVOR__|${FLAVOR}|g" \
@@ -114,6 +115,6 @@ sed \
   -e "s|__PACKER_FLAGS__|${PACKER_FLAGS}|g" \
   -e "s|__BUILD_TAG__|${NAME}|g" \
   -e "s|__BUILD_TS__|${BUILD_TS}|g" \
-  "$DIR/deploy/build-job.yaml" | kubectl --kubeconfig "$WL_KUBECONFIG" apply -f - >/dev/null
+  "$DIR/deploy/build-job.yaml" | kubectl --kubeconfig "$WL_KUBECONFIG" replace --force -f - >/dev/null
 
 echo "$NAME"

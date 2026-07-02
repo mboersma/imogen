@@ -171,7 +171,9 @@ assigned to the worker VMSS by `hack/setup-builder-cluster.sh`. The Job pod requ
 so when the builder pool is at zero the pod stays Pending and cluster-autoscaler scales the pool up
 to give it a node; the autoscaler scales back to zero once the build finishes (see Builder cluster
 below). `hack/run-build-job.sh` applies `deploy/build-job.yaml` and returns immediately with the
-Job name. `hack/build-status.sh <job>` reports the Job state (Pending, Running, Succeeded, Failed or
+Job name. A Job spec is immutable, so it force-recreates (`kubectl replace --force`) any prior Job of
+the same name, which lets a failed build be retried and an existing version be rebuilt without a manual
+cleanup step. `hack/build-status.sh <job>` reports the Job state (Pending, Running, Succeeded, Failed or
 NotFound). The `submit-build-job` and `get-build-status` MCP tools wrap the same two scripts.
 
 `run-build-job.sh` passes `kubernetes_deb_version` to image-builder for Ubuntu flavors, which installs

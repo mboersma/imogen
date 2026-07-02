@@ -102,5 +102,12 @@ spec:
             windows-priorityclass: ABOVE_NORMAL_PRIORITY_CLASS
           name: '{{ ds.meta_data["local_hostname"] }}'
       postKubeadmCommands:
-      - nssm set kubelet start SERVICE_AUTO_START
+      # The image-builder sc.exe kubelet service uses a fixed command line that
+      # ignores kubeadm-flags.env, so cloud-provider=external never reaches the
+      # kubelet on its own. RestartKubelet.ps1 (shipped in every sc.exe image)
+      # recreates the service with the kubeadm args appended and restarts it, so
+      # the node self-adds the cloud-provider uninitialized taint and
+      # cloud-node-manager can set its providerID. This is how kubernetes-sigs/
+      # windows-testing drives sc.exe images.
+      - powershell C:/k/RestartKubelet.ps1
       - powershell C:/defender-exclude-calico.ps1

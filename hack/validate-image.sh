@@ -58,6 +58,7 @@ windows-*)
   TEMPLATE="$DIR/deploy/validation-machinedeployment-windows.yaml"
   NAME="${CLUSTER}-vwin"
   READY_TIMEOUT="1800s"
+  NODE_WAIT_TRIES=120
   case "$FLAVOR" in
   *2025*) SMOKE_IMAGE="mcr.microsoft.com/windows/nanoserver:ltsc2025" ;;
   *) SMOKE_IMAGE="mcr.microsoft.com/windows/nanoserver:ltsc2022" ;;
@@ -68,6 +69,7 @@ windows-*)
   TEMPLATE="$DIR/deploy/validation-machinedeployment.yaml"
   NAME="${CLUSTER}-validate"
   READY_TIMEOUT="600s"
+  NODE_WAIT_TRIES=60
   SMOKE_IMAGE="registry.k8s.io/busybox:1.27"
   ;;
 esac
@@ -133,7 +135,7 @@ fi
 
 echo "Waiting for the validation machine to get a node (this boots a VM)"
 NODE=""
-for _ in $(seq 1 60); do
+for _ in $(seq 1 "$NODE_WAIT_TRIES"); do
   NODE="$(kubectl get machines -l "cluster.x-k8s.io/deployment-name=${NAME}" -n "$CAPI_NS" \
     -o jsonpath='{.items[0].status.nodeRef.name}' 2>/dev/null || true)"
   [[ -n "$NODE" ]] && break

@@ -108,6 +108,15 @@ bug: the mgmt-side CAPI objects live in `default` but the tool server pod's name
 "should I keep waiting?" mid-build, so the reconcile prompt now tells it to poll on its own and only
 pause for the promote approval gate.
 
+Known reliability gap (open): the per-flavor gap analysis is done by the model reasoning over the
+`list-k8s-releases` and `list-gallery-versions` outputs, and it repeatedly gets the set difference
+wrong once more than one flavor is in scope. On 2026-07-02 the daily watcher listed every gallery
+correctly but then concluded "all in-scope versions are already present" and did nothing, even though
+`ubuntu-2604` was missing 1.35.6/1.34.9 and `azurelinux-3` was missing 1.34.9. Prompt hardening ("check
+every in-scope version against the community list") has not fixed it. The planned fix is to move the
+gap computation into deterministic code (a tool that returns the exact missing (flavor, version) work
+list) so the model only executes the list rather than deriving it.
+
 The agent then drove the rest of the loop end to end: with the builder control plane recreated at a
 current 1.36 minor it validated the freshly built `1.35.6` staging image, paused at the human approval
 gate, and on approval promoted `1.35.6` to the community gallery. That closes the MVP: a full

@@ -116,7 +116,16 @@ correctly but then concluded "all in-scope versions are already present" and did
 every in-scope version against the community list") did not fix it. The fix moved the gap computation
 into deterministic code: the `list-reconcile-plan` tool diffs the in-scope releases against both
 galleries in Go and returns the exact work list (`build` or `validate-promote` per flavor and version),
-so the model just executes the list rather than deriving it.
+so the model just executes the list rather than deriving it. Verified live on 2026-07-02: the agent
+called `list-reconcile-plan` first, got the correct work list (`validate-promote ubuntu-2604 1.35.6`
+plus `build` items for `ubuntu-2604 1.34.9` and `azurelinux-3 1.34.9`), and backfilled all three
+minors so every in-scope flavor now carries 1.34.9/1.35.6/1.36.2.
+
+Reliability gap (fixed): the status-polling loop used to be unthrottled, so a long run's many
+`get-build-status`/`get-validation-status`/`get-promote-status` polls (each a full LLM turn resending
+the growing conversation) exhausted the Azure OpenAI deployment's tokens-per-minute quota and failed
+the run with a 429. The model cannot pace itself, so the pacing now lives in the tools: each status
+poll blocks `IMOGEN_POLL_DELAY_SECONDS` (default 15) before returning, capping the loop rate.
 
 The agent then drove the rest of the loop end to end: with the builder control plane recreated at a
 current 1.36 minor it validated the freshly built `1.35.6` staging image, paused at the human approval

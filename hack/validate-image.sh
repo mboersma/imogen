@@ -135,17 +135,45 @@ fi
 
 echo "Waiting for the validation machine to get a node (this boots a VM)"
 NODE=""
-for _ in $(seq 1 "$NODE_WAIT_TRIES"); do
-  NODE="$(kubectl get machines -l "cluster.x-k8s.io/deployment-name=${NAME}" -n "$CAPI_NS" \
-    -o jsonpath='{.items[0].status.nodeRef.name}' 2>/dev/null || true)"
-  [[ -n "$NODE" ]] && break
-  sleep 15
-done
-if [[ -z "$NODE" ]]; then
-  echo "FAIL: validation machine never registered a node" >&2
-  exit 1
+if [[ "$OS_TYPE" == "windows" ]]; then
+  # The image-builder sc.exe kubelet service registers the node on the initial
+  # kubeadm join, before RestartKubelet.ps1 re-creates the service with
+  # cloud-provider=external, so the node never self-adds the cloud-provider
+  # "uninitialized" taint. Without that taint cloud-node-manager skips the node
+  # and never sets its providerID, so CAPI cannot link the node by providerID.
+  # Discover the node directly on the builder cluster, then add the taint if the
+  # node has no providerID; cloud-node-manager then sets providerID and clears the
+  # taint, which also lets CAPI link the Machine.
+  for _ in $(seq 1 "$NODE_WAIT_TRIES"); do
+    NODE="$(kubectl --kubeconfig "$WL_KUBECONFIG" get nodes -l kubernetes.io/os=windows \
+      -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || true)"
+    [[ -n "$NODE" ]] && break
+    sleep 15
+  done
+  if [[ -z "$NODE" ]]; then
+    echo "FAIL: no Windows node registered on the builder cluster" >&2
+    exit 1
+  fi
+  echo "Node: $NODE"
+  if [[ -z "$(kubectl --kubeconfig "$WL_KUBECONFIG" get node "$NODE" \
+    -o jsonpath='{.spec.providerID}' 2>/dev/null || true)" ]]; then
+    echo "Node has no providerID; applying cloud-provider uninitialized taint"
+    kubectl --kubeconfig "$WL_KUBECONFIG" taint node "$NODE" \
+      node.cloudprovider.kubernetes.io/uninitialized=true:NoSchedule --overwrite || true
+  fi
+else
+  for _ in $(seq 1 "$NODE_WAIT_TRIES"); do
+    NODE="$(kubectl get machines -l "cluster.x-k8s.io/deployment-name=${NAME}" -n "$CAPI_NS" \
+      -o jsonpath='{.items[0].status.nodeRef.name}' 2>/dev/null || true)"
+    [[ -n "$NODE" ]] && break
+    sleep 15
+  done
+  if [[ -z "$NODE" ]]; then
+    echo "FAIL: validation machine never registered a node" >&2
+    exit 1
+  fi
+  echo "Node: $NODE"
 fi
-echo "Node: $NODE"
 
 echo "Waiting for $NODE to be Ready"
 if ! kubectl --kubeconfig "$WL_KUBECONFIG" wait --for=condition=Ready "node/${NODE}" --timeout="$READY_TIMEOUT"; then

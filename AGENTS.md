@@ -257,6 +257,24 @@ HostProcess DaemonSet per run and tears it down after. The Windows smoke pod is 
 Windows analog of `hostNetwork`) built from a `nanoserver` image matching the OS. Windows nodes take
 longer to converge, so the Ready wait is 1800s for Windows versus 600s for Linux.
 
+Two sc.exe quirks make Windows nodes need extra help to reach Ready, both handled by the validation
+path. First, providerID: image-builder's default Windows service manager is sc.exe, whose kubelet
+service has a fixed command line that ignores `kubeadm-flags.env`, so `--cloud-provider=external`
+never reaches the first kubelet and the node registers without the
+`node.cloudprovider.kubernetes.io/uninitialized` taint. cloud-node-manager then skips it and never
+sets providerID, so CAPI never links the Machine's `nodeRef` (it matches on providerID). The
+KubeadmConfigTemplate runs `C:/k/RestartKubelet.ps1` (shipped in every sc.exe image, the mechanism
+kubernetes-sigs/windows-testing uses) to recreate the service with the kubeadm args, and because
+that alone does not re-taint an already-registered node, `validate-image.sh` discovers the Windows
+node directly on the workload cluster and applies the uninitialized taint itself when providerID is
+missing, which lets cloud-node-manager set it. Second, CNI: image-builder's containerd 2.3.1 does not
+reliably notice the Calico CNI config that the calico-node daemonset writes after containerd has
+already started, so CRI stays "cni plugin not initialized" and the node never goes Ready. A
+postKubeadmCommand waits for the Calico conflist to appear, then restarts containerd (and kubelet,
+which depends on it) so containerd rescans its conf dir and loads CNI. For Windows the node-wait
+block therefore keys off the node on the workload cluster rather than the CAPI `nodeRef`, since
+`nodeRef` is not linked until providerID is set.
+
 A full validation takes several minutes, which is longer than the MCP client timeout, so the
 `validate-image` tool does not run the script inline. Like `submit-build-job` and `promote-image`, it
 starts the script in the background and returns immediately; the agent then polls `get-validation-status`

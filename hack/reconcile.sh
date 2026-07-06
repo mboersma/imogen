@@ -19,7 +19,8 @@
 # the reconcile prompt authorizes the agent to promote validated images on its
 # own (IMOGEN_RECONCILE_AUTO_PROMOTE=1, the default). Interactive runs through
 # the kagent UI still hit the approval gate in the agent's system message.
-# Retirement (gc-eol-images apply=true) is never automated here.
+# Retirement is likewise automated here (IMOGEN_RECONCILE_GC_APPLY=1, the
+# default): the agent deletes minors more than a year past their upstream EOL.
 #
 # Usage: hack/reconcile.sh
 # Tunables (env):
@@ -31,6 +32,8 @@
 #                             only validate+promote what is already staged (default 1)
 #   IMOGEN_RECONCILE_AUTO_PROMOTE  1 to promote validated images without approval
 #                             (default 1), 0 to stop and ask a human before promote
+#   IMOGEN_RECONCILE_GC_APPLY 1 to delete EOL minors past the grace period without
+#                             approval (default 1), 0 to only report candidates
 #   IMOGEN_RECONCILE_TIMEOUT  overall seconds to keep following the task (default 5400)
 
 set -euo pipefail
@@ -41,6 +44,7 @@ MINORS="${IMOGEN_RECONCILE_MINORS:-3}"
 MAX_PER_RUN="${IMOGEN_RECONCILE_MAX:-1}"
 BUILD="${IMOGEN_RECONCILE_BUILD:-1}"
 AUTO_PROMOTE="${IMOGEN_RECONCILE_AUTO_PROMOTE:-1}"
+GC_APPLY="${IMOGEN_RECONCILE_GC_APPLY:-1}"
 TIMEOUT="${IMOGEN_RECONCILE_TIMEOUT:-5400}"
 
 FLAVORS_CSV="$(echo "$FLAVORS" | tr ', ' '\n' | sed '/^$/d' | paste -sd ', ' -)"
@@ -76,6 +80,18 @@ that a human approve promoting it, but do NOT promote this run: no human is avai
 now. Keep polling any long-running tool on your own; do NOT end your turn while one is still working."
 fi
 
+if [[ "$GC_APPLY" == "1" ]]; then
+  GC_STEP="Call gc-eol-images with apply=true for the community gallery to retire (delete) any minors \
+whose upstream end-of-life date is more than the grace period (about a year) in the past. This runs \
+unattended and the policy authorizes deleting minors that far out of support without asking, so delete \
+them and report exactly which versions you removed. A minor still supported, within the grace window, or \
+with no known EOL date is never a candidate, so if there are none say so."
+else
+  GC_STEP="Call gc-eol-images as a dry run (apply=false) for the community gallery to list any minors past \
+their upstream end-of-life grace period. Report them as retirement candidates, but do NOT delete anything: \
+retirement needs human approval, so leave apply=true for an operator."
+fi
+
 PROMPT="You are the imogen image reconciler. Reconcile the Azure community gallery \
 against upstream Kubernetes releases for these flavors: ${FLAVORS_CSV}.
 
@@ -91,15 +107,13 @@ items. If it returns upToDate true (an empty work list), every in-scope version 
 community gallery, so skip to step 4 and say so.
 2. ${PROMOTE_STEP}
 3. ${BUILD_STEP}
-4. Call gc-eol-images as a dry run (apply=false) for the community gallery to list any minors past their \
-upstream end-of-life grace period. Report them as retirement candidates, but do NOT delete anything: retirement \
-needs human approval, so leave apply=true for an operator.
+4. ${GC_STEP}
 5. Finally, call notify once with a short summary of what you found and did this run (level=info). Your \
 summary must describe only what the tools actually confirmed: never say a version was built, validated, \
-or promoted unless the corresponding status tool returned Succeeded for it this run. If a step did not \
-finish or you did not complete it, say so plainly rather than assuming success. If \
-anything needs a human, such as retirement candidates to approve or a step you could not complete, also call \
-notify with level=approval describing exactly what you need approved.
+promoted, or deleted unless the corresponding tool confirmed it for that version this run. If a step did \
+not finish or you did not complete it, say so plainly rather than assuming success. If \
+anything needs a human, such as a step you could not complete, also call \
+notify with level=approval describing exactly what you need.
 
 Report a short summary of what you found and what you did."
 

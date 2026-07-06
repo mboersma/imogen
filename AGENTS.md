@@ -84,8 +84,9 @@ builds are longer than Linux; a Windows build is refused up front if the matchin
 - **Prefer ecosystem tooling** (Helm, clusterctl, az, kubectl, image-builder make targets) over
   bespoke reimplementations.
 - **Human-approval gate** stays in front of `promote-image` for interactive runs. The unattended
-  release-watcher is the one explicitly-automated exception: it auto-promotes validated images
-  (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`). Retirement (`gc-eol-images apply=true`) is never automated.
+  release-watcher is the explicitly-automated exception: it auto-promotes validated images
+  (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`) and auto-retires minors more than a year past their upstream
+  EOL (`IMOGEN_RECONCILE_GC_APPLY=1`). Interactive runs still require human approval for both.
 - Commit messages: single line; no `Co-authored-by` trailer.
 
 ## Repository layout
@@ -229,8 +230,9 @@ EOL dates come from endoflife.date (`IMOGEN_K8S_EOL_URL`). It defaults to a dry 
 the candidates, and deletes only with `--apply` (or `IMOGEN_GC_APPLY=1`). `IMOGEN_GC_STAGE` picks
 the staging or community gallery (default community). The `gc-eol-images` MCP tool applies the same
 policy (with a `graceDays` input) and returns the candidates; `apply=true` deletes them. Retirement
-is destructive, so the agent runs a dry run first and asks for approval before applying, and the
-release-watcher only ever reports candidates.
+is destructive, so for interactive runs the agent runs a dry run first and asks for approval before
+applying. The unattended release-watcher, which has no human, auto-applies retirement
+(`IMOGEN_RECONCILE_GC_APPLY=1`, its default) and deletes any minor over a year past EOL.
 
 ### Image validation
 
@@ -427,16 +429,18 @@ the in-scope upstream releases against both galleries and returns an explicit wo
 `get-validation-status` → `promote-image` → `get-promote-status` for each item. The gap analysis lives
 in the tool rather than the model because the model reliably mis-computed the set difference once more
 than one flavor was in scope (it would list the galleries correctly, then declare everything present
-and do nothing). The watcher runs unattended: because no human is present,
-the reconcile prompt authorizes the agent to promote a validated image without approval
-(`IMOGEN_RECONCILE_AUTO_PROMOTE=1`). Interactive runs through the kagent UI still hit the approval
-gate in the agent's system message, and `gc-eol-images` is only ever a dry run here. Because kagent
+and do nothing). The watcher runs unattended: because no human is present, the reconcile prompt
+authorizes the agent to promote a validated image without approval
+(`IMOGEN_RECONCILE_AUTO_PROMOTE=1`) and to delete minors over a year past EOL without approval
+(`IMOGEN_RECONCILE_GC_APPLY=1`, its `gc-eol-images apply=true` step). Interactive runs through the
+kagent UI still hit the approval gate in the agent's system message and only dry-run `gc-eol-images`.
+Because kagent
 runs the task server-side and a single SSE stream can drop while a long build runs, the script does
 not depend on one stream: when the stream ends before the task reaches a terminal state it
 resubscribes (`tasks/resubscribe`) to the same task and keeps following it, until the task completes
 or `IMOGEN_RECONCILE_TIMEOUT` (default 5400s) passes. Other tunables are env vars on the CronJob:
 `IMOGEN_RECONCILE_FLAVORS`, `IMOGEN_RECONCILE_MINORS`, `IMOGEN_RECONCILE_MAX`,
-`IMOGEN_RECONCILE_AUTO_PROMOTE`.
+`IMOGEN_RECONCILE_AUTO_PROMOTE`, `IMOGEN_RECONCILE_GC_APPLY`.
 
 While a build, validation or promotion is in flight the agent polls its status tool in a tight loop,
 and each poll is a full LLM turn that resends the growing conversation. Left unthrottled that loop can

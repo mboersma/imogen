@@ -3,8 +3,10 @@
 # hack/reconcile.sh, which posts a reconcile prompt to the agent's A2A endpoint
 # and follows the task to completion, resubscribing if the stream drops during a
 # long build. The agent does the gap analysis and drives build -> validate ->
-# promote with its own tools. Promotion runs unattended here
-# (IMOGEN_RECONCILE_AUTO_PROMOTE=1); retirement still needs a human.
+# promote -> retire with its own tools. Promotion and retirement both run
+# unattended here (IMOGEN_RECONCILE_AUTO_PROMOTE=1, IMOGEN_RECONCILE_GC_APPLY=1):
+# the agent promotes validated images and deletes minors over a year past EOL
+# without a human. Interactive kagent-UI runs still hit the approval gate.
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -18,7 +20,7 @@ spec:
   jobTemplate:
     spec:
       backoffLimit: 0
-      activeDeadlineSeconds: 14700
+      activeDeadlineSeconds: 46800
       template:
         metadata:
           labels:
@@ -37,11 +39,13 @@ spec:
                 - name: IMOGEN_RECONCILE_MINORS
                   value: "3"
                 - name: IMOGEN_RECONCILE_MAX
-                  value: "1"
+                  value: "10"
                 - name: IMOGEN_RECONCILE_AUTO_PROMOTE
                   value: "1"
+                - name: IMOGEN_RECONCILE_GC_APPLY
+                  value: "1"
                 - name: IMOGEN_RECONCILE_TIMEOUT
-                  value: "14400"
+                  value: "43200"
               resources:
                 requests:
                   cpu: "50m"

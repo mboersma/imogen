@@ -200,6 +200,16 @@ any real build) so a running build is never touched. It defaults to a dry run; `
 `IMOGEN_BUILD_RG_APPLY=1`) deletes. `hack/run-build-job.sh` runs the sweep with `--apply` before each
 build, so a leak from one run is collected on the next.
 
+A successful build also leaves behind a managed image (`Microsoft.Compute/images` named
+`capi-<flavor>-<ts>`): image-builder creates it, publishes the staging gallery version from it, then
+never deletes it. The gallery version is an independent replicated copy, so the managed image is pure
+leftover. `hack/gc-build-images.sh` sweeps those the same conservative way as the resource-group
+sweep, keying on the same `imogen-build` tag (Packer applies `azure_tags` to the managed image too),
+the `capi-` name prefix, and `IMOGEN_BUILD_IMAGE_TTL` (default 3h) so an image a running build is
+still publishing from is never touched. It defaults to a dry run; `--apply` (or
+`IMOGEN_BUILD_IMAGE_APPLY=1`) deletes. `hack/run-build-job.sh` runs it with `--apply` before each
+build, right after the resource-group sweep.
+
 ### Image promotion
 
 `hack/promote-image.sh <flavor> <version> [--replace]` copies a validated image version from the

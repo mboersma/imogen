@@ -116,6 +116,10 @@ trap 'rm -f "$WL_KUBECONFIG"' EXIT
 # a running build or another tenant's Packer groups.
 "$DIR/hack/gc-build-rgs.sh" --apply || echo "warning: build-rg sweep failed, continuing" >&2
 
+# Sweep managed images left behind by earlier successful builds. Same age and
+# tag guards, so an image a running build is still publishing from is untouched.
+"$DIR/hack/gc-build-images.sh" --apply || echo "warning: build-image sweep failed, continuing" >&2
+
 echo "Applying build Job $NAME (target $TARGET) to $CLUSTER"
 # A Job spec is immutable, so re-running a build for the same flavor and version
 # (after an earlier failure, or to rebuild and replace an image) would fail

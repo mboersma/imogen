@@ -54,8 +54,12 @@ if [[ "$BUILD" == "1" ]]; then
 ${MAX_PER_RUN} per flavor this run): call submit-build-job for its flavor and version, then keep \
 polling get-build-status until it reports Succeeded or Failed. Builds take tens of minutes, so keep \
 waiting and polling on your own. Do NOT stop to ask whether you should keep waiting, and do NOT end \
-your turn while a build is Pending or Running. When it Succeeds the new version is in staging, so then \
-validate and promote it exactly like an action=validate-promote item below."
+your turn while a build is Pending or Running. A build item is not done when its build Succeeds: the \
+new version is then in staging, so you must go on to validate and promote it exactly like an \
+action=validate-promote item below, and it is only done once it is promoted to the community gallery \
+(or a step failed). If you started several builds, come back to each one as it Succeeds and carry it \
+through validation and promotion; do not finish while any built version still needs validating or \
+promoting."
 else
   BUILD_STEP="Do NOT submit any new builds this run. For each work item with action=build, just report \
 that it needs a build."
@@ -108,7 +112,16 @@ community gallery, so skip to step 4 and say so.
 2. ${PROMOTE_STEP}
 3. ${BUILD_STEP}
 4. ${GC_STEP}
-5. Finally, call notify once with a short summary of what you found and did this run (level=info). Your \
+5. Completion gate: before you go on, account for every work item from the step 1 list. Each item is \
+finished only when its version is confirmed in the community gallery (get-promote-status Succeeded) or \
+you have a recorded terminal failure for it (a build, validation, or promotion that Failed). If any \
+build is still Pending or Running, any validation is still Running, or any promotion is still Creating, \
+you are NOT done: keep polling get-build-status, get-validation-status, and get-promote-status for \
+those items until each reaches a terminal state. A build that Succeeded but has not yet been validated \
+and promoted is NOT finished. Do NOT end your turn or write the summary until every item is either \
+promoted or has a recorded failure. If you are unsure whether one is still in flight, re-poll its \
+status rather than assuming it is done.
+6. Finally, call notify once with a short summary of what you found and did this run (level=info). Your \
 summary must describe only what the tools actually confirmed: never say a version was built, validated, \
 promoted, or deleted unless the corresponding tool confirmed it for that version this run. If a step did \
 not finish or you did not complete it, say so plainly rather than assuming success. If \

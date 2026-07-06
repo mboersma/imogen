@@ -462,7 +462,12 @@ the in-scope upstream releases against both galleries and returns an explicit wo
 `get-validation-status` → `promote-image` → `get-promote-status` for each item. The gap analysis lives
 in the tool rather than the model because the model reliably mis-computed the set difference once more
 than one flavor was in scope (it would list the galleries correctly, then declare everything present
-and do nothing). The watcher runs unattended: because no human is present, the reconcile prompt
+and do nothing). The reconcile prompt ends with a completion gate that forces the agent to account for
+every work item before it summarizes: an item counts as finished only once its version is confirmed in
+the community gallery (or a step has a recorded terminal failure), and a build that merely Succeeded
+into staging is not finished until it has also been validated and promoted. Without that gate the agent
+tended to declare the run complete while long Windows builds (tens of minutes each) were still running,
+so those images never got validated or promoted in the same run. The watcher runs unattended: because no human is present, the reconcile prompt
 authorizes the agent to promote a validated image without approval
 (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`) and to delete minors over a year past EOL without approval
 (`IMOGEN_RECONCILE_GC_APPLY=1`, its `gc-eol-images apply=true` step). Interactive runs through the

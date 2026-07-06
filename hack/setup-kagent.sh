@@ -34,16 +34,30 @@ rm -f "$ARCHIVE"
 
 echo "Fetching Entra ID token for Azure OpenAI"
 TOKEN="$(az account get-access-token --resource https://cognitiveservices.azure.com --query accessToken -o tsv)"
+# On kind there is no workload identity, so the local ModelConfig talks to the
+# real Azure OpenAI account directly and carries the token itself (unlike AKS,
+# which fronts the account with the token-injecting proxy). Resolve the endpoint.
+if [[ -f "$DIR/hack/foundation.env" ]]; then
+  # shellcheck disable=SC1091
+  source "$DIR/hack/foundation.env"
+fi
+SUBSCRIPTION_ID="${IMOGEN_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}"
+OPENAI_ACCOUNT="${IMOGEN_OPENAI_ACCOUNT:-imogen-openai-$(echo "$SUBSCRIPTION_ID" | cut -c1-8)}"
+AOAI_ENDPOINT="${IMOGEN_OPENAI_ENDPOINT:-https://${OPENAI_ACCOUNT}.openai.azure.com/}"
 
 echo "Applying manifests"
 kubectl apply -f "$DIR/deploy/toolserver.yaml"
 kubectl apply -f "$DIR/deploy/remotemcpserver.yaml"
-# The api-key is unused (Entra auth via the Bearer default header) but kagent
+# The api-key is unused (Entra auth via the Authorization header) but kagent
 # still wires a key secret into the agent deployment, so create a placeholder.
 kubectl -n "$NAMESPACE" create secret generic imogen-aoai-key \
   --from-literal=AZUREOPENAI_API_KEY=unused \
   --dry-run=client -o yaml | kubectl apply -f -
-sed "s|__AZURE_AD_TOKEN__|${TOKEN}|" "$DIR/deploy/modelconfig.yaml" | kubectl apply -f -
+sed "s|__AOAI_ENDPOINT__|${AOAI_ENDPOINT}|" "$DIR/deploy/modelconfig.yaml" | kubectl apply -f -
+# Carry the token in defaultHeaders for the direct local path (kagent folds it
+# into the agent's config-hash, which is fine on kind).
+kubectl -n "$NAMESPACE" patch modelconfig imogen-aoai --type merge \
+  -p "{\"spec\":{\"defaultHeaders\":{\"Authorization\":\"Bearer ${TOKEN}\"}}}"
 kubectl apply -f "$DIR/deploy/agent.yaml"
 # Restart the agent so it picks up the refreshed token.
 kubectl -n "$NAMESPACE" rollout restart deploy/imogen 2>/dev/null || true

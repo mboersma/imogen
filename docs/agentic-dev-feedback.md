@@ -137,10 +137,14 @@ for a demo and untenable for an always-on agent.
 - **Idea:** OIDC/workload-identity token sourcing with automatic refresh, so the agent gets short-
   lived tokens without a manual rotation step. This likely spans kagent and how it reads
   `ModelConfig`.
-- **Worked around here:** an in-cluster CronJob (`imogen-aoai-refresher`) uses workload identity to
-  mint a token every 30 minutes, patches the `ModelConfig`, and restarts the agent. It removes the
-  manual reruns but still restarts the agent each cycle, so native token sourcing in kagent would
-  still be the real fix.
+- **Worked around here:** we front Azure OpenAI with a tiny in-cluster reverse proxy
+  (`cmd/imogen-aoai-proxy`) that holds its own workload identity, mints and refreshes the token, and
+  injects it per request, so the `ModelConfig` carries no token at all. Earlier attempts to patch the
+  token onto the `ModelConfig` directly failed either way: kagent folds the token into the agent
+  Deployment's `config-hash`, so every refresh rolled the agent and killed the in-flight turn, while
+  refreshing rarely enough to avoid the roll let the ~74-minute token expire mid-run (401s). Keeping
+  the token out of the `ModelConfig` sidesteps both, but native token sourcing in kagent would still
+  be the cleaner fix.
 
 ## CAPZ / Cluster API (context, mostly inherent)
 

@@ -9,10 +9,10 @@
 #     (cloud side, so no local cross-architecture build),
 #   - creates a user-assigned identity for the tool server, grants it the roles
 #     it needs on the imogen resource group, and federates it to the tool server
-#     and token-refresher service accounts,
+#     and Azure OpenAI proxy service accounts,
 #   - installs kagent, applies the tool server RBAC, Deployment and Service, the
-#     ModelConfig, RemoteMCPServer and Agent, and a CronJob that keeps the Azure
-#     OpenAI Entra token fresh with workload identity.
+#     ModelConfig, RemoteMCPServer and Agent, and the Azure OpenAI proxy that
+#     injects a fresh Entra token per request with workload identity.
 #
 # Idempotent. Parameterized via IMOGEN_* env vars (see hack/foundation.env.example).
 #
@@ -89,8 +89,8 @@ if BUILD_IDENTITY_ID="$(az identity show -g "$RESOURCE_GROUP" -n "$BUILD_IDENTIT
     --scope "$BUILD_IDENTITY_ID" -o none 2>/dev/null || echo "  (Managed Identity Operator already assigned)"
 fi
 
-echo "Federating $TS_IDENTITY to the tool server and refresher service accounts"
-for sa in imogen-toolserver imogen-aoai-refresher; do
+echo "Federating $TS_IDENTITY to the tool server and proxy service accounts"
+for sa in imogen-toolserver imogen-aoai-proxy; do
   existing="$(az identity federated-credential show --name "$sa" \
     --identity-name "$TS_IDENTITY" -g "$RESOURCE_GROUP" --query issuer -o tsv 2>/dev/null || true)"
   if [[ "$existing" == "$OIDC_ISSUER" ]]; then
@@ -150,17 +150,26 @@ sed "s|__TOOLSERVER_IMAGE__|${IMAGE}|" "$DIR/deploy/toolserver-aks.yaml" | kubec
 kubectl apply -f "$DIR/deploy/remotemcpserver.yaml"
 
 echo "Applying the agent and Azure OpenAI ModelConfig"
-# The api-key is unused (Entra auth via the Bearer default header) but kagent
-# still wires a key secret into the agent deployment, so create a placeholder.
+# The api-key is unused (the proxy injects the real Entra token) but kagent still
+# wires a key secret into the agent deployment, so create a placeholder.
 kubectl -n "$NAMESPACE" create secret generic imogen-aoai-key \
   --from-literal=AZUREOPENAI_API_KEY=unused \
   --dry-run=client -o yaml | kubectl apply -f -
-echo "Fetching an initial Azure OpenAI token"
-TOKEN="$(az account get-access-token --resource https://cognitiveservices.azure.com --query accessToken -o tsv)"
-sed "s|__AZURE_AD_TOKEN__|${TOKEN}|" "$DIR/deploy/modelconfig.yaml" | kubectl apply -f -
-kubectl apply -f "$DIR/deploy/agent.yaml"
+# Deploy the token-injecting proxy and point the ModelConfig at it, so the
+# short-lived (~74m) Entra token never lives in the ModelConfig. Carrying it there
+# rolled the agent on every rotation (kagent folds it into the config-hash) and
+# 401'd when it went stale mid-run; the proxy owns rotation with its own workload
+# identity, which holds Cognitive Services OpenAI User on the account.
+AOAI_UPSTREAM="https://${OPENAI_ACCOUNT}.openai.azure.com/"
 sed -e "s|__TOOLSERVER_IMAGE__|${IMAGE}|" -e "s|__CLIENT_ID__|${TS_CLIENT_ID}|" \
-  "$DIR/deploy/aoai-token-refresher.yaml" | kubectl apply -f -
+  -e "s|__AOAI_UPSTREAM__|${AOAI_UPSTREAM}|" \
+  "$DIR/deploy/aoai-proxy.yaml" | kubectl apply -f -
+PROXY_ENDPOINT="http://imogen-aoai-proxy.${NAMESPACE}.svc.cluster.local:8080/"
+sed "s|__AOAI_ENDPOINT__|${PROXY_ENDPOINT}|" "$DIR/deploy/modelconfig.yaml" | kubectl apply -f -
+kubectl apply -f "$DIR/deploy/agent.yaml"
+# The old daily token refresher is obsolete now the proxy owns rotation; remove
+# it if a prior deploy left it behind.
+kubectl -n "$NAMESPACE" delete cronjob imogen-aoai-refresher --ignore-not-found >/dev/null
 sed "s|__TOOLSERVER_IMAGE__|${IMAGE}|" "$DIR/deploy/release-watcher.yaml" | kubectl apply -f -
 
 echo "Waiting for the tool server to be ready"

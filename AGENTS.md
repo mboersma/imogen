@@ -104,7 +104,8 @@ builds are longer than Linux; a Windows build is refused up front if the matchin
 ├── SECURITY.md          # how to report security issues
 ├── assets/              # static assets (project image + attribution)
 ├── cmd/
-│   └── imogen-toolserver/  # MCP tool server entrypoint
+│   ├── imogen-toolserver/  # MCP tool server entrypoint
+│   └── imogen-aoai-proxy/  # token-injecting Azure OpenAI reverse proxy
 ├── deploy/              # kagent manifests + CAPZ builder cluster addons (Calico, identity),
 │                        #   build Job, release-watcher CronJob
 ├── docs/
@@ -402,7 +403,7 @@ builds and pushes the tool server image with `az acr build` (cloud side, so no l
 build), creates the `imogen-toolserver` user-assigned identity, grants it the roles it needs on the
 `imogen` resource group (Contributor for galleries and builds, Cognitive Services OpenAI User for
 the model, Managed Identity Operator on the build identity), and federates it to the
-`imogen-toolserver` and `imogen-aoai-refresher` service accounts (refreshing those federated
+`imogen-toolserver` and `imogen-aoai-proxy` service accounts (refreshing those federated
 credentials too when an AKS rebuild changes the OIDC issuer). It installs kagent with the bundled
 sample agents and demo MCP servers disabled, since imogen only needs its own agent and tool server
 and the samples would otherwise saturate CPU on the small management cluster. The tool server runs as
@@ -411,17 +412,24 @@ ConfigMap; `deploy/toolserver-rbac.yaml` gives it the cluster permissions to rea
 kubeconfig secret and drive the CAPI validation objects. `validate-image.sh` detects in-cluster
 mode (`IMOGEN_IN_CLUSTER=1`) and reads the builder kubeconfig from its secret instead of clusterctl.
 
-Because this kagent version still only sends the api-key header to Azure OpenAI, the agent keeps
-using a short lived Entra token on the `ModelConfig`. That token is valid for about 24 hours, so in
-AKS a `imogen-aoai-refresher` CronJob (the same image, workload identity) mints a fresh one once a
-day at 07:00, an hour before the release watcher runs, patches it into the `ModelConfig`, and
-restarts the agent so it loads the new token. The agent caches the token at startup and does not
-re-read the `ModelConfig` live, so the restart is the only way to pick up a new token. A restart
-kills any in-flight agent turn, and a full reconcile runs far longer than the old 30-minute cadence,
-so the refresh now skips the restart whenever a release-watcher run is active: the running agent
-keeps its still-valid token and the next day's refresh restarts it. A kagent A2A turn runs
-server-side and survives an SSE client disconnect, so a dropped reconcile stream was never the
-cause of a stalled run; the mid-run agent restart was.
+Because this kagent version still only sends the api-key header to Azure OpenAI, the model call
+carries an Entra Bearer token. That token is only valid for about 74 minutes, far shorter than a
+full reconcile (build then validate then promote) that runs for hours. Putting the token on the
+`ModelConfig` does not work: kagent folds the token into the agent Deployment's `config-hash`, so
+every refresh rolls the agent and kills the in-flight turn, while refreshing rarely enough to avoid
+the roll lets the token expire mid-run and the model calls start returning 401. So instead of ever
+placing the token on the `ModelConfig`, AKS fronts Azure OpenAI with `imogen-aoai-proxy`
+(`cmd/imogen-aoai-proxy`, `deploy/aoai-proxy.yaml`): a small in-cluster reverse proxy that holds its
+own workload identity, mints and caches a token (refreshing a few minutes before expiry), and injects
+it as the `Authorization` header on every forwarded request. The `ModelConfig` points at the proxy
+Service with no token at all, so the token never enters the config-hash, the agent never rolls on a
+rotation, and an unattended multi-hour run stays authenticated the whole time. The proxy reuses the
+`imogen-toolserver` identity (already granted Cognitive Services OpenAI User on the account) through a
+second federated credential. A kagent A2A turn runs server-side and survives an SSE client
+disconnect, so a dropped reconcile stream is not the cause of a stalled run. The local kind path
+(`hack/setup-kagent.sh`) has no workload identity, so it keeps the simpler direct approach: it talks
+to the Azure OpenAI account directly and patches a short lived token into the `ModelConfig`
+`defaultHeaders` (rerun the script to refresh it).
 
 The pipeline runs build, then validate, then promote. The agent validates a staging image before
 promoting and asks for approval before it promotes. For a hard gate, kagent supports

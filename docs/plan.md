@@ -75,11 +75,13 @@ needs on the `imogen` resource group and is federated to the tool server service
 `validate-image.sh` runs in-cluster, reading the builder kubeconfig from its secret. Verified live:
 `az` authenticates as the workload identity, lists the galleries, and reads the builder kubeconfig;
 the agent discovered all six tools. Because this kagent version still only sends the api-key header,
-a `imogen-aoai-refresher` CronJob mints a fresh Entra token with workload identity and patches it
-into the `ModelConfig`, replacing the manual host script reruns. The token lasts about 24 hours, so
-the refresh runs once a day at 07:00 (an hour before the release watcher) and skips restarting the
-agent while a release-watcher run is in progress, since the restart it needs to load a new token
-would otherwise kill a reconcile mid-run.
+the model call needs an Entra Bearer token, but that token lives only about 74 minutes and putting it
+on the `ModelConfig` folds it into kagent's agent `config-hash`, so every refresh rolls the agent and
+kills the in-flight reconcile (and refreshing rarely enough to avoid the roll lets the token expire
+mid-run). So in AKS an in-cluster reverse proxy (`cmd/imogen-aoai-proxy`) fronts Azure OpenAI: it
+holds its own workload identity, mints and refreshes the token, and injects it per request, while the
+`ModelConfig` points at the proxy with no token at all. The local kind path keeps the simpler direct
+approach, patching a short lived token into the `ModelConfig` `defaultHeaders`.
 
 Reconstructibility check. After Azure deallocated the dev VMs overnight, we tore the builder cluster
 down and rebuilt it from the scripts to test repeatability. It worked but needed manual fix-ups:
@@ -195,12 +197,15 @@ the agent validated and promoted `1.35.6` to the community gallery end to end th
 gate.
 
 Unattended reliability fixes. Running the watcher live surfaced three problems, now fixed. First,
-long reconciles stalled partway through: the `imogen-aoai-refresher` ran every 30 minutes and
-restarted the agent to load the fresh token, which killed whatever turn was in flight. A kagent A2A
-turn actually runs server-side and survives an SSE client disconnect, so the reconcile stream
-dropping was never the cause. The token is valid for about 24 hours, so the refresher now runs once
-a day at 07:00 (an hour before the watcher) and skips the restart while a release-watcher run is
-active, so it never interrupts a reconcile. Second, `validate-image` blocked for several minutes and
+long reconciles stalled partway through on Azure OpenAI auth. This kagent version only sends the
+api-key header, so the model call needs an Entra Bearer token that lives only about 74 minutes.
+Placing it on the `ModelConfig` folds it into kagent's agent `config-hash`, so every refresh rolls
+the agent and kills the in-flight turn, yet refreshing rarely enough to avoid the roll lets the token
+expire mid-run and the calls return 401. A kagent A2A turn runs server-side and survives an SSE
+client disconnect, so the reconcile stream dropping was never the cause. The fix keeps the token off
+the `ModelConfig` entirely: an in-cluster reverse proxy (`cmd/imogen-aoai-proxy`) fronts Azure OpenAI
+with its own workload identity, minting and refreshing the token and injecting it per request, so the
+agent never rolls and never goes stale. Second, `validate-image` blocked for several minutes and
 tripped the MCP client's 300 second timeout, which the agent then wrongly retried. Like
 `submit-build-job` and `promote-image`, it now starts the validation in the background and returns
 immediately, and the agent polls a new `get-validation-status` tool until Succeeded or Failed.

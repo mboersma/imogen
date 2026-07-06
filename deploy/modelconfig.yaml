@@ -9,14 +9,16 @@ spec:
   apiKeySecret: imogen-aoai-key
   apiKeySecretKey: AZUREOPENAI_API_KEY
   # This subscription disallows API-key (local) auth on Azure OpenAI, and this
-  # kagent version's Azure client only sends the api-key header. So the agent
-  # authenticates with an Entra ID Bearer token passed as a default header,
-  # which Azure OpenAI honors over the (unused) api-key. The token is injected
-  # by hack/setup-kagent.sh and lasts about an hour; rerun it to refresh. On AKS
-  # this is replaced by workload identity.
-  defaultHeaders:
-    Authorization: "Bearer __AZURE_AD_TOKEN__"
+  # kagent version's Azure client only sends a static header, so the account can
+  # only be reached with a short-lived (~74m) Entra token. Rather than carry that
+  # token here (where kagent folds it into the agent's config-hash, so rotating
+  # it rolls the agent and kills in-flight runs, and letting it go stale 401s
+  # mid-run), on AKS azureEndpoint points at the imogen-aoai-proxy Service, which
+  # holds the workload identity and injects a fresh token per request. The
+  # api-key below is an unused placeholder the proxy strips. Local kind runs
+  # (hack/setup-kagent.sh) instead set azureEndpoint to the real account and
+  # patch in an Entra token directly, since there is no workload identity there.
   azureOpenAI:
-    azureEndpoint: https://imogen-openai-e240e532.openai.azure.com/
+    azureEndpoint: __AOAI_ENDPOINT__
     azureDeployment: gpt-4.1-mini
     apiVersion: "2024-10-21"

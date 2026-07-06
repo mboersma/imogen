@@ -1,0 +1,75 @@
+# Azure OpenAI token-injecting proxy.
+#
+# cmd/imogen-aoai-proxy fronts the real Azure OpenAI endpoint and adds a fresh
+# Entra token to every request using its own workload identity, so the token
+# never lives in the ModelConfig (and so never rolls the agent through kagent's
+# config-hash or expires mid-run). The agent's ModelConfig points its
+# azureEndpoint at this Service; the proxy forwards to IMOGEN_AOAI_UPSTREAM.
+#
+# hack/setup-kagent-aks.sh fills in the image, the identity client id, and the
+# upstream endpoint. The service account is federated to the imogen-toolserver
+# managed identity, which already holds Cognitive Services OpenAI User on the
+# account.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: imogen-aoai-proxy
+  namespace: kagent
+  annotations:
+    azure.workload.identity/client-id: "__CLIENT_ID__"
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: imogen-aoai-proxy
+  namespace: kagent
+  labels:
+    app: imogen-aoai-proxy
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: imogen-aoai-proxy
+  template:
+    metadata:
+      labels:
+        app: imogen-aoai-proxy
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: imogen-aoai-proxy
+      containers:
+        - name: proxy
+          image: __TOOLSERVER_IMAGE__
+          command: ["/usr/local/bin/imogen-aoai-proxy"]
+          env:
+            - name: IMOGEN_AOAI_PROXY_ADDR
+              value: ":8080"
+            - name: IMOGEN_AOAI_UPSTREAM
+              value: "__AOAI_UPSTREAM__"
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 8080
+            initialDelaySeconds: 2
+            periodSeconds: 10
+          resources:
+            requests:
+              cpu: "50m"
+              memory: 64Mi
+            limits:
+              cpu: "250m"
+              memory: 128Mi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: imogen-aoai-proxy
+  namespace: kagent
+spec:
+  selector:
+    app: imogen-aoai-proxy
+  ports:
+    - port: 8080
+      targetPort: 8080

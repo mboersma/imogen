@@ -258,6 +258,15 @@ node without working CNI does not block deletion. Everything is torn down on exi
 `IMOGEN_VALIDATE_KEEP=1` is set. The script replicates the staging image to the builder region
 (`IMOGEN_BUILDER_LOCATION`) first if needed, since builds publish only to the gallery home region.
 
+Each validation reuses one fixed-name MachineDeployment per OS type (`imogen-builder-validate` for
+Linux, `imogen-builder-vwin` for Windows; the Windows name stays short because a Windows VM name is
+capped at 15 characters), so two validations of the same OS type cannot run at once without stomping
+on each other's node. The reconcile agent starts many validations in parallel, so the `validate-image`
+tool serializes them per OS type with an in-process lock (`internal/tools/validate.go`): a queued run
+holds its log file and reports Running until the one ahead of it finishes. Serializing in the tool
+server, rather than the shell, keeps it reliable without a filesystem lock (the Azure Linux image has
+no `flock`) since every validation runs in the single tool server process.
+
 Windows validation is a full node join, not a lighter VM smoke test: a Windows worker only reaches
 Ready with the whole Windows networking stack in place. The builder cluster carries Calico with
 `windowsDataplane: HNS` (`deploy/calico-values.yaml`, plus the strictAffinity `IPAMConfig` and

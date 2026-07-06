@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -26,8 +27,31 @@ import (
 // until it reports Succeeded or Failed. The run writes its output to a log file
 // and its exit code to a done file under IMOGEN_VALIDATE_STATE_DIR (default the
 // system temp dir), which get-validation-status reads back.
+//
+// Each validation reuses one fixed-name MachineDeployment per OS type on the
+// builder cluster (imogen-builder-validate for Linux, imogen-builder-vwin for
+// Windows), so two validations of the same OS type cannot run at once without
+// stomping on each other's node. The reconcile agent kicks off many validations
+// in parallel, so validateLocks serializes them per OS type: a queued run holds
+// its log file (reported as Running) until the one ahead of it finishes.
 
 const defaultValidateScript = "hack/validate-image.sh"
+
+// validateLocks serializes validation runs per OS type, since each reuses a
+// single shared MachineDeployment on the builder cluster.
+var validateLocks = map[string]*sync.Mutex{
+	"linux":   {},
+	"windows": {},
+}
+
+// validateOSType maps an image-builder flavor to the OS type whose validation
+// resources it shares (and therefore the lock it must serialize on).
+func validateOSType(flavor string) string {
+	if strings.HasPrefix(flavor, "windows") {
+		return "windows"
+	}
+	return "linux"
+}
 
 type validateImageInput struct {
 	Flavor  string `json:"flavor" jsonschema:"image-builder flavor, such as ubuntu-2404"`
@@ -52,11 +76,10 @@ func registerValidateImage(server *mcp.Server) {
 
 		logPath, donePath := validateStatePaths(in.Flavor, version)
 
-		// If a run is already in flight, do not start a second one.
+		// If a run is already in flight (queued or running), do not start a second.
 		if fileExists(logPath) && !fileExists(donePath) {
 			return nil, validateImageOutput{Flavor: in.Flavor, Version: version, State: "Running"}, nil
 		}
-		_ = os.Remove(logPath)
 		_ = os.Remove(donePath)
 
 		script := os.Getenv("IMOGEN_VALIDATE_SCRIPT")
@@ -64,21 +87,32 @@ func registerValidateImage(server *mcp.Server) {
 			script = defaultValidateScript
 		}
 
-		// Run detached from the request context so the run is not cancelled when
-		// this handler returns. The shell writes the script output to the log and
-		// its exit code to the done file, which get-validation-status reads.
+		// Create the log up front so a queued run (waiting on the per-OS-type
+		// lock) still reports Running and blocks a duplicate submission, before
+		// the script itself starts writing to it.
+		if err := os.WriteFile(logPath, []byte("Queued for validation\n"), 0o644); err != nil {
+			return nil, validateImageOutput{}, fmt.Errorf("failed to create validation log: %w", err)
+		}
+
+		// Append (not truncate) so the queue marker is kept and the script's
+		// output follows it; the done file holds the exit code.
 		shell := fmt.Sprintf(
-			"bash %q %q %q >%q 2>&1; echo $? >%q",
+			"bash %q %q %q >>%q 2>&1; echo $? >%q",
 			script, in.Flavor, version, logPath, donePath,
 		)
-		cmd := exec.Command("bash", "-c", shell)
-		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-		if err := cmd.Start(); err != nil {
-			return nil, validateImageOutput{}, fmt.Errorf("failed to start validation: %w", err)
-		}
-		// Reap the child when it finishes so it does not linger as a zombie. The
-		// done file, not this goroutine, is the source of truth for status.
-		go func() { _ = cmd.Wait() }()
+
+		// Serialize per OS type: two validations of the same OS type share one
+		// MachineDeployment on the builder cluster, so they must not run at once.
+		// The goroutine (not the request) owns the run, so validate-image still
+		// returns immediately; a queued run waits here until the one ahead exits.
+		lock := validateLocks[validateOSType(in.Flavor)]
+		go func() {
+			lock.Lock()
+			defer lock.Unlock()
+			cmd := exec.Command("bash", "-c", shell)
+			cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+			_ = cmd.Run()
+		}()
 
 		return nil, validateImageOutput{Flavor: in.Flavor, Version: version, State: "Running"}, nil
 	})

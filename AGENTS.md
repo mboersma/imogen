@@ -425,8 +425,14 @@ it as the `Authorization` header on every forwarded request. The `ModelConfig` p
 Service with no token at all, so the token never enters the config-hash, the agent never rolls on a
 rotation, and an unattended multi-hour run stays authenticated the whole time. The proxy reuses the
 `imogen-toolserver` identity (already granted Cognitive Services OpenAI User on the account) through a
-second federated credential. A kagent A2A turn runs server-side and survives an SSE client
-disconnect, so a dropped reconcile stream is not the cause of a stalled run. The local kind path
+second federated credential. The proxy also absorbs upstream throttling: a reconcile fires many model
+calls in bursts, and kagent treats a 429 (or a transient 503) as fatal and aborts the whole run, so
+the proxy retries throttled requests (honoring `Retry-After`, otherwise exponential backoff) instead
+of surfacing the error. The Azure OpenAI deployment is provisioned with enough capacity to match that
+burst (`IMOGEN_OPENAI_CAPACITY`, default 200 = 200K TPM in `hack/setup-openai.sh`); the earlier
+default of 10 (10K TPM) throttled a full-matrix reconcile within minutes. A kagent A2A turn runs
+server-side and survives an SSE client disconnect, so a dropped reconcile stream is not the cause of a
+stalled run. The local kind path
 (`hack/setup-kagent.sh`) has no workload identity, so it keeps the simpler direct approach: it talks
 to the Azure OpenAI account directly and patches a short lived token into the `ModelConfig`
 `defaultHeaders` (rerun the script to refresh it).

@@ -19,12 +19,16 @@
 package main
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"log"
+	"math/rand"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -40,6 +44,17 @@ const tokenScope = "https://cognitiveservices.azure.com/.default"
 // refreshSkew is how long before expiry a cached token is considered stale, so a
 // request never forwards a token that expires while the upstream is handling it.
 const refreshSkew = 5 * time.Minute
+
+// Retry tuning for upstream throttling. A reconcile fires many model calls in
+// bursts, so Azure OpenAI occasionally answers 429 (or a transient 503). kagent
+// treats those as fatal and aborts the whole run, so the proxy absorbs them here:
+// it waits (honoring Retry-After when present) and replays the request, turning a
+// throttle into added latency instead of a failed unattended reconcile.
+const (
+	maxRetries    = 6
+	maxRetryWait  = 30 * time.Second
+	baseRetryWait = time.Second
+)
 
 // tokenSource hands out a valid Entra token, minting a new one from the workload
 // identity when the cached one is missing or near expiry.
@@ -66,6 +81,79 @@ func (t *tokenSource) get(ctx context.Context) (string, error) {
 	t.token = tok.Token
 	t.expiry = tok.ExpiresOn
 	return t.token, nil
+}
+
+// retryTransport replays a request when the upstream throttles it (429) or is
+// briefly unavailable (503), so a burst of model calls degrades to added latency
+// rather than a failed reconcile. It buffers the request body up front so the
+// retried attempt can resend it; Azure OpenAI request bodies are small JSON, so
+// buffering is cheap.
+type retryTransport struct {
+	base http.RoundTripper
+}
+
+func (rt *retryTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	var body []byte
+	if req.Body != nil {
+		b, err := io.ReadAll(req.Body)
+		_ = req.Body.Close()
+		if err != nil {
+			return nil, err
+		}
+		body = b
+	}
+
+	for attempt := 0; ; attempt++ {
+		if body != nil {
+			req.Body = io.NopCloser(bytes.NewReader(body))
+			req.ContentLength = int64(len(body))
+		}
+		resp, err := rt.base.RoundTrip(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusTooManyRequests && resp.StatusCode != http.StatusServiceUnavailable {
+			return resp, nil
+		}
+		if attempt >= maxRetries {
+			// Out of retries; surface the throttle to the caller.
+			return resp, nil
+		}
+		wait := retryWait(resp, attempt)
+		log.Printf("upstream returned %d, retry %d/%d in %s", resp.StatusCode, attempt+1, maxRetries, wait.Round(time.Millisecond))
+		_, _ = io.Copy(io.Discard, resp.Body)
+		_ = resp.Body.Close()
+		select {
+		case <-req.Context().Done():
+			return nil, req.Context().Err()
+		case <-time.After(wait):
+		}
+	}
+}
+
+// retryWait picks a backoff: the upstream's Retry-After when present (seconds or
+// an HTTP date), otherwise exponential backoff with jitter, capped at maxRetryWait.
+func retryWait(resp *http.Response, attempt int) time.Duration {
+	if ra := resp.Header.Get("Retry-After"); ra != "" {
+		if secs, err := strconv.Atoi(ra); err == nil && secs >= 0 {
+			return capWait(time.Duration(secs) * time.Second)
+		}
+		if t, err := http.ParseTime(ra); err == nil {
+			if d := time.Until(t); d > 0 {
+				return capWait(d)
+			}
+		}
+	}
+	backoff := baseRetryWait << attempt
+	jitter := time.Duration(rand.Int63n(int64(baseRetryWait)))
+	return capWait(backoff + jitter)
+}
+
+func capWait(d time.Duration) time.Duration {
+	if d > maxRetryWait {
+		return maxRetryWait
+	}
+	return d
 }
 
 func main() {
@@ -95,6 +183,8 @@ func main() {
 	// Stream responses through immediately; the model's completions arrive as
 	// Server-Sent Events and must not be buffered.
 	proxy.FlushInterval = -1
+	// Retry upstream throttles so a burst of model calls never fails the run.
+	proxy.Transport = &retryTransport{base: http.DefaultTransport}
 
 	base := proxy.Director
 	proxy.Director = func(req *http.Request) {

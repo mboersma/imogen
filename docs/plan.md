@@ -39,8 +39,9 @@ Done:
   `list-k8s-releases` over MCP.
 
 Auth note: this subscription disallows API-key auth on Azure OpenAI, and this kagent version's
-Azure client only sends the api-key header. So the agent authenticates with a short lived Entra
-ID Bearer token injected as a default header. On AKS this is replaced by workload identity.
+Azure client only sends the api-key header. On AKS an in-cluster proxy (`cmd/imogen-aoai-proxy`)
+fronts the account and injects a fresh Entra token per request with workload identity, so the
+ModelConfig carries no token. Local kind patches a short lived token into the ModelConfig directly.
 
 - CAPZ builder cluster stood up and verified. `hack/setup-mgmt-cluster.sh` creates an AKS
   management cluster with workload identity, a user-assigned identity CAPZ uses (federated to the

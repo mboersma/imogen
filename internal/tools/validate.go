@@ -33,7 +33,9 @@ import (
 // Windows), so two validations of the same OS type cannot run at once without
 // stomping on each other's node. The reconcile agent kicks off many validations
 // in parallel, so validateLocks serializes them per OS type: a queued run holds
-// its log file (reported as Running) until the one ahead of it finishes.
+// its log file (reported as Running) until the one ahead of it finishes. A run
+// that already succeeded is not repeated, so the reconcile loop can re-invoke
+// validate-image for a validated-but-not-yet-promoted version cheaply.
 
 const defaultValidateScript = "hack/validate-image.sh"
 
@@ -79,6 +81,14 @@ func registerValidateImage(server *mcp.Server) {
 		// If a run is already in flight (queued or running), do not start a second.
 		if fileExists(logPath) && !fileExists(donePath) {
 			return nil, validateImageOutput{Flavor: in.Flavor, Version: version, State: "Running"}, nil
+		}
+		// If a prior run already succeeded, do not re-validate. The reconcile
+		// loop re-invokes validate-image for versions that validated but were not
+		// yet promoted, and re-running a passed validation would waste minutes on
+		// the shared MachineDeployment. A failed run is retried, since a node join
+		// (especially Windows) can flake.
+		if code, done := readDone(donePath); done && code == 0 {
+			return nil, validateImageOutput{Flavor: in.Flavor, Version: version, State: "Succeeded"}, nil
 		}
 		_ = os.Remove(donePath)
 

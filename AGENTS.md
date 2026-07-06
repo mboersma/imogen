@@ -462,12 +462,7 @@ the in-scope upstream releases against both galleries and returns an explicit wo
 `get-validation-status` → `promote-image` → `get-promote-status` for each item. The gap analysis lives
 in the tool rather than the model because the model reliably mis-computed the set difference once more
 than one flavor was in scope (it would list the galleries correctly, then declare everything present
-and do nothing). The reconcile prompt ends with a completion gate that forces the agent to account for
-every work item before it summarizes: an item counts as finished only once its version is confirmed in
-the community gallery (or a step has a recorded terminal failure), and a build that merely Succeeded
-into staging is not finished until it has also been validated and promoted. Without that gate the agent
-tended to declare the run complete while long Windows builds (tens of minutes each) were still running,
-so those images never got validated or promoted in the same run. The watcher runs unattended: because no human is present, the reconcile prompt
+and do nothing). The watcher runs unattended: because no human is present, the reconcile prompt
 authorizes the agent to promote a validated image without approval
 (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`) and to delete minors over a year past EOL without approval
 (`IMOGEN_RECONCILE_GC_APPLY=1`, its `gc-eol-images apply=true` step). Interactive runs through the
@@ -475,10 +470,24 @@ kagent UI still hit the approval gate in the agent's system message and only dry
 Because kagent
 runs the task server-side and a single SSE stream can drop while a long build runs, the script does
 not depend on one stream: when the stream ends before the task reaches a terminal state it
-resubscribes (`tasks/resubscribe`) to the same task and keeps following it, until the task completes
-or `IMOGEN_RECONCILE_TIMEOUT` (default 5400s) passes. Other tunables are env vars on the CronJob:
-`IMOGEN_RECONCILE_FLAVORS`, `IMOGEN_RECONCILE_MINORS`, `IMOGEN_RECONCILE_MAX`,
-`IMOGEN_RECONCILE_AUTO_PROMOTE`, `IMOGEN_RECONCILE_GC_APPLY`.
+resubscribes (`tasks/resubscribe`) to the same task and keeps following it.
+
+One agent turn is not enough on its own. The model reliably ends its turn while validations and builds
+are still running, even when the prompt tells it not to, leaving validated images unpromoted (a
+prompt-only "completion gate" did not hold: the agent acknowledged work was unfinished and quit anyway).
+So persistence lives in the shell loop, not in the model. `reconcile.sh` runs the reconcile prompt in a
+fresh turn repeatedly until `list-reconcile-plan` reports `upToDate` (the whole in-scope matrix is in the
+community gallery) or `IMOGEN_RECONCILE_TIMEOUT` (default 5400s) passes, sleeping
+`IMOGEN_RECONCILE_PASS_INTERVAL` (default 180s) between turns so in-flight work can drain. This works
+because builds (Kubernetes Jobs) and validations (goroutines in the tool server, serialized per OS type)
+keep running server-side after a turn ends, and both the `submit-build-job` and `validate-image` tools
+are idempotent: a later turn that re-invokes them for a still-running build or an already-passed
+validation leaves the in-flight work alone rather than restarting it (`submit-build-job` skips a Job
+whose pods are still active, `validate-image` returns Succeeded for a prior successful run and only
+re-runs a failed one). Each turn therefore just promotes whatever finished since the last turn and
+advances the rest, and the gallery converges over several turns. Other tunables are env vars on the
+CronJob: `IMOGEN_RECONCILE_FLAVORS`, `IMOGEN_RECONCILE_MINORS`, `IMOGEN_RECONCILE_MAX`,
+`IMOGEN_RECONCILE_AUTO_PROMOTE`, `IMOGEN_RECONCILE_GC_APPLY`, `IMOGEN_RECONCILE_PASS_INTERVAL`.
 
 While a build, validation or promotion is in flight the agent polls its status tool in a tight loop,
 and each poll is a full LLM turn that resends the growing conversation. Left unthrottled that loop can

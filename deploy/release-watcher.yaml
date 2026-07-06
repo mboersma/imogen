@@ -46,6 +46,8 @@ spec:
                   value: "1"
                 - name: IMOGEN_RECONCILE_TIMEOUT
                   value: "43200"
+                - name: IMOGEN_RECONCILE_PASS_INTERVAL
+                  value: "180"
               resources:
                 requests:
                   cpu: "50m"

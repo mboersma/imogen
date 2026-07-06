@@ -111,6 +111,20 @@ fi
 WL_KUBECONFIG="$(imogen_builder_kubeconfig)"
 trap 'rm -f "$WL_KUBECONFIG"' EXIT
 
+# If a build for this flavor and version is already running (or pending a node)
+# from an earlier reconcile turn, leave it alone and just return its name. The
+# reconcile loop re-invokes submit-build-job for versions still missing from
+# staging, and replace --force below would delete the in-flight Job and restart
+# the build from scratch, so it would never finish. .status.active counts pending
+# and running pods, so this also covers a build still waiting for the autoscaler.
+ACTIVE="$(kubectl --kubeconfig "$WL_KUBECONFIG" get job "$NAME" \
+  -o jsonpath='{.status.active}' 2>/dev/null || true)"
+if [[ "${ACTIVE:-0}" =~ ^[0-9]+$ && "${ACTIVE:-0}" -gt 0 ]]; then
+  echo "Build Job $NAME is already active; leaving it running" >&2
+  echo "$NAME"
+  exit 0
+fi
+
 # Sweep any temporary build resource groups leaked by an earlier hard failure
 # before starting a new build. Age-guarded and imogen-scoped, so it never touches
 # a running build or another tenant's Packer groups.

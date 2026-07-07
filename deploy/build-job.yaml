@@ -56,12 +56,18 @@ spec:
               # Tag the temporary Packer resource group so a leaked one (when a
               # hard failure kills the pod before Packer cleans up) can be safely
               # garbage-collected by hack/gc-build-rgs.sh without touching other
-              # tenants' Packer groups in this shared subscription.
-              if [ -n "$IMOGEN_BUILD_TAG" ] && [ -f packer/azure/packer.json ]; then
-                jq --arg t "$IMOGEN_BUILD_TAG" --arg ts "$IMOGEN_BUILD_TS" \
-                  '.builders |= map(if .azure_tags then .azure_tags += {"imogen-build":$t,"imogen-build-ts":$ts} else . end)' \
-                  packer/azure/packer.json > /tmp/packer.json
-                mv /tmp/packer.json packer/azure/packer.json
+              # tenants' Packer groups in this shared subscription. Linux targets
+              # build from packer.json and Windows targets from packer-windows.json,
+              # so tag whichever exist (an untagged Windows leak is otherwise
+              # invisible to the sweeper).
+              if [ -n "$IMOGEN_BUILD_TAG" ]; then
+                for pf in packer/azure/packer.json packer/azure/packer-windows.json; do
+                  [ -f "$pf" ] || continue
+                  jq --arg t "$IMOGEN_BUILD_TAG" --arg ts "$IMOGEN_BUILD_TS" \
+                    '.builders |= map(if .azure_tags then .azure_tags += {"imogen-build":$t,"imogen-build-ts":$ts} else . end)' \
+                    "$pf" > /tmp/pf.json
+                  mv /tmp/pf.json "$pf"
+                done
               fi
               # Windows image-builder gap: after "sysprep /generalize" the built-in
               # Administrator is left flagged "must change password at next logon", so

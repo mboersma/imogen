@@ -184,7 +184,9 @@ Job's `imogen.build/attempt` annotation. Past the cap it stops recreating the Jo
 so the reconcile loop does not rebuild a broken image every pass for hours and `get-build-status` keeps
 reporting Failed until a human looks. `hack/build-status.sh <job>` reports the Job state (Pending,
 Running, Succeeded, Failed or NotFound). The `submit-build-job` and `get-build-status` MCP tools wrap the
-same two scripts.
+same two scripts; `get-build-status` takes the flavor and version (not a raw Job name) and derives the
+Job name the same way `run-build-job.sh` does, so the agent cannot poll a mistyped name and see a false
+NotFound that would make the reconcile loop resubmit the build every pass.
 
 `run-build-job.sh` passes `kubernetes_deb_version` to image-builder for Ubuntu flavors, which installs
 it verbatim (`kubelet={{ kubernetes_deb_version }}`), so the value must match a real published package.

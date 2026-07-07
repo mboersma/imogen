@@ -61,7 +61,8 @@ FLAVORS_CSV="$(echo "$FLAVORS" | tr ', ' '\n' | sed '/^$/d' | paste -sd ', ' -)"
 
 if [[ "$BUILD" == "1" ]]; then
   BUILD_STEP="Work items with action=build are missing from both galleries. For each (at most \
-${MAX_PER_RUN} per flavor this run): first call get-build-status. If a build for it is already Pending \
+${MAX_PER_RUN} per flavor this run): first call get-build-status for its flavor and version. If a build \
+for it is already Pending \
 or Running from an earlier turn, leave it. Otherwise call submit-build-job for its flavor and version. \
 You do NOT need to wait for the build to finish: builds run as Kubernetes Jobs server-side and take tens \
 of minutes, and this reconcile runs in a loop. Once a build Succeeds the version lands in staging, so a \

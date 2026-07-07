@@ -218,6 +218,26 @@ with a brief window where it is absent; the watcher never uses it. Verified live
 non-blocking poll, and promoted it back to the community gallery in one unattended run with no
 mid-run restart.
 
+Patch-day stress test (in progress). To surface production hiccups before they happen for real, we
+emptied both galleries and ran the watcher against the full 5 flavors × 3 minors matrix with
+auto-promote and `gc-eol-images apply=true`. It found three orchestration problems, all fixed in
+deterministic code rather than by asking the model to behave. First, parallel validations collided on
+the single shared validation MachineDeployment; `validate-image` now serializes per OS type (one
+Linux and one Windows validation at a time, the rest queued in server-side goroutines that persist
+across agent turns). Second, the agent quit before the matrix finished even when told not to (a
+prompt-based "completion gate" was simply ignored by the LLM), so `hack/reconcile.sh` now loops,
+re-invoking the agent each pass until `list-reconcile-plan` reports `upToDate` or the deadline
+passes; builds and validations keep running server-side between passes and `submit-build-job` /
+`validate-image` are idempotent, so each pass just promotes whatever finished. Third, and most
+serious, the agent promoted images whose validation had not passed (it called `promote-image` while
+validation was still Running, and those validations later failed), publishing unvalidated images.
+Prompt wording did not stop it, so `promote-image` now refuses to promote unless that flavor and
+version's validation `Succeeded` (`IMOGEN_PROMOTE_REQUIRE_VALIDATION=0` to bypass). The lesson across
+all three: persistence and safety invariants must live in the shell loop and the Go tools, never in
+the prompt. The remaining open item is a genuine image problem rather than orchestration: Windows
+1.34.9 validation times out becoming Ready while windows-2022 1.35.6/1.36.2 pass, so it looks
+version-specific and is still being root-caused.
+
 Scaling and footprint. Two refinements were evaluated for how the builder cluster scales and
 how small the idle footprint can get.
 

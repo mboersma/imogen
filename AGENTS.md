@@ -211,6 +211,17 @@ still publishing from is never touched. It defaults to a dry run; `--apply` (or
 `IMOGEN_BUILD_IMAGE_APPLY=1`) deletes. `hack/run-build-job.sh` runs it with `--apply` before each
 build, right after the resource-group sweep.
 
+For Windows, `deploy/build-job.yaml` applies a second `jq` patch (before `make`) that inserts a
+pre-sysprep Packer provisioner into `packer-windows.json`. After image-builder's `sysprep /generalize`
+the built-in Administrator is left flagged "must change password at next logon", so on first boot the
+OOBE auto-logon can block on the LogonUI password dialog long enough that cloudbase-init never signals
+provisioning-ready and Azure returns an intermittent `OSProvisioningTimedOut` (a timing race, so the
+same image sometimes provisions and sometimes times out). The provisioner disables the built-in
+Administrator (its normal Azure state; cloudbase-init still renames it to `capi` and sets its password
+in the post-OOBE main phase) and runs `net accounts /maxpwage:unlimited` so the packer build user's
+password cannot expire after the default 42 days. Verified: three back-to-back boots of the patched
+`windows-2022-containerd` 1.34.9 image all reached Azure `Succeeded` with no timeout.
+
 ### Image promotion
 
 `hack/promote-image.sh <flavor> <version> [--replace]` copies a validated image version from the
@@ -305,6 +316,15 @@ postKubeadmCommand waits for the Calico conflist to appear, then restarts contai
 which depends on it) so containerd rescans its conf dir and loads CNI. For Windows the node-wait
 block therefore keys off the node on the workload cluster rather than the CAPI `nodeRef`, since
 `nodeRef` is not linked until providerID is set.
+
+Those postKubeadmCommand restarts run only once, during bootstrap, so they can miss a later failure:
+when Calico creates the HNS vSwitch (after bootstrap has finished) the kubelet's apiserver connection
+freezes, its node heartbeat stops advancing, and the node stays NotReady with nothing left to recover
+it. The Windows node-Ready wait in `validate-image.sh` therefore self-heals: while it waits it watches
+the Ready condition's heartbeat, and when the heartbeat stops advancing (about 90s) it restarts the
+kubelet again via a HostProcess pod (`RestartKubelet.ps1`), retrying until the node goes Ready.
+Verified: across two clean unattended runs the loop restarted the kubelet once and twice respectively,
+and both reached Ready and passed smoke with no manual intervention.
 
 A full validation takes several minutes, which is longer than the MCP client timeout, so the
 `validate-image` tool does not run the script inline. Like `submit-build-job` and `promote-image`, it

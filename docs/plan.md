@@ -234,9 +234,26 @@ validation was still Running, and those validations later failed), publishing un
 Prompt wording did not stop it, so `promote-image` now refuses to promote unless that flavor and
 version's validation `Succeeded` (`IMOGEN_PROMOTE_REQUIRE_VALIDATION=0` to bypass). The lesson across
 all three: persistence and safety invariants must live in the shell loop and the Go tools, never in
-the prompt. The remaining open item is a genuine image problem rather than orchestration: Windows
-1.34.9 validation times out becoming Ready while windows-2022 1.35.6/1.36.2 pass, so it looks
-version-specific and is still being root-caused.
+the prompt.
+
+The stress test also surfaced two genuine Windows problems, both since fixed. First, Windows VMs
+intermittently failed Azure provisioning with `OSProvisioningTimedOut`: after image-builder's
+`sysprep /generalize` the built-in Administrator is left flagged "must change password at next logon",
+and on first boot the OOBE auto-logon can block on that LogonUI dialog until Azure's provisioning
+window expires (a timing race, so the same image sometimes provisions and sometimes times out). A
+pre-sysprep Packer provisioner in `deploy/build-job.yaml` disables the built-in Administrator (which
+cloudbase-init still renames to `capi` and re-passwords post-OOBE) and stops the packer build user's
+password from expiring; three back-to-back boots of the patched image then provisioned cleanly.
+Second, once booted the node could stay NotReady: Calico's HNS vSwitch creation freezes the kubelet's
+apiserver connection, and the image's in-bootstrap `RestartKubelet.ps1` runs too early to recover it.
+`validate-image.sh` now self-heals, restarting the kubelet whenever its node heartbeat stops advancing
+until the node goes Ready. With both fixes, windows-2022 1.34.9 passed validation three times
+unattended. The provisioning fix is a candidate to upstream into image-builder.
+
+Running the watcher this long also exposed two watcher bugs still to fix: the reconcile loop ran well
+past `IMOGEN_RECONCILE_TIMEOUT` and the Job's `activeDeadlineSeconds` (a single run went 6h+), and it
+never gives up on a persistently-failing build, so a version that keeps failing validation stays a
+build item forever and is resubmitted every pass, spinning the loop on a broken image indefinitely.
 
 Scaling and footprint. Two refinements were evaluated for how the builder cluster scales and
 how small the idle footprint can get.

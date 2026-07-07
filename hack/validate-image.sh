@@ -102,6 +102,7 @@ cleanup() {
   echo "Tearing down $NAME"
   kubectl --kubeconfig "$WL_KUBECONFIG" delete pod "${NAME}-smoke" -n "$SMOKE_NS" --ignore-not-found >/dev/null 2>&1 || true
   if [[ "$OS_TYPE" == "windows" ]]; then
+    kubectl --kubeconfig "$WL_KUBECONFIG" delete pod "${NAME}-kubelet-kick" -n "$SMOKE_NS" --ignore-not-found >/dev/null 2>&1 || true
     kubectl --kubeconfig "$WL_KUBECONFIG" delete daemonset kube-proxy-windows -n kube-system --ignore-not-found >/dev/null 2>&1 || true
   fi
   kubectl delete machinedeployment "$NAME" -n "$CAPI_NS" --ignore-not-found >/dev/null 2>&1 || true
@@ -110,6 +111,23 @@ cleanup() {
   rm -f "$WL_KUBECONFIG"
 }
 trap cleanup EXIT
+
+# Restart the kubelet on a Windows validation node via a HostProcess pod. This
+# recovers the kubelet after Calico's HNS vSwitch creation freezes its apiserver
+# connection; the image's own RestartKubelet.ps1 runs too early (right after
+# kubeadm join, before the vSwitch exists) to cover that case.
+windows_restart_kubelet() {
+  local node="$1"
+  local kp="${NAME}-kubelet-kick"
+  kubectl --kubeconfig "$WL_KUBECONFIG" delete pod "$kp" -n "$SMOKE_NS" --ignore-not-found >/dev/null 2>&1 || true
+  kubectl --kubeconfig "$WL_KUBECONFIG" run "$kp" -n "$SMOKE_NS" \
+    --image="$SMOKE_IMAGE" --restart=Never \
+    --overrides="{\"spec\":{\"nodeName\":\"${node}\",\"hostNetwork\":true,\"securityContext\":{\"windowsOptions\":{\"hostProcess\":true,\"runAsUserName\":\"NT AUTHORITY\\\\SYSTEM\"}},\"nodeSelector\":{\"kubernetes.io/os\":\"windows\"},\"tolerations\":[{\"operator\":\"Exists\"}]}}" \
+    --command -- powershell -Command "if (Test-Path C:/k/RestartKubelet.ps1) { & C:/k/RestartKubelet.ps1 } else { Restart-Service kubelet }" >/dev/null 2>&1 || true
+  kubectl --kubeconfig "$WL_KUBECONFIG" wait --for=jsonpath='{.status.phase}'=Succeeded \
+    "pod/$kp" -n "$SMOKE_NS" --timeout=120s >/dev/null 2>&1 || true
+  kubectl --kubeconfig "$WL_KUBECONFIG" delete pod "$kp" -n "$SMOKE_NS" --ignore-not-found >/dev/null 2>&1 || true
+}
 
 echo "Validating ${IMAGE_DEFINITION} ${IMAGE_VERSION} from ${STAGING_GALLERY}"
 sed \
@@ -176,7 +194,46 @@ else
 fi
 
 echo "Waiting for $NODE to be Ready"
-if ! kubectl --kubeconfig "$WL_KUBECONFIG" wait --for=condition=Ready "node/${NODE}" --timeout="$READY_TIMEOUT"; then
+if [[ "$OS_TYPE" == "windows" ]]; then
+  # When Calico creates the HNS vSwitch the kubelet's apiserver connection
+  # freezes and its node heartbeat stops advancing, leaving the node NotReady
+  # ("cni plugin not initialized"). The image's RestartKubelet.ps1 already ran
+  # right after join, too early to help. Detect the frozen kubelet (heartbeat no
+  # longer advancing) and restart it again until the node goes Ready.
+  ready=""
+  kicks=0
+  prev_hb=""
+  stale=0
+  deadline=$(( $(date +%s) + ${READY_TIMEOUT%s} ))
+  while [[ $(date +%s) -lt $deadline ]]; do
+    if [[ "$(kubectl --kubeconfig "$WL_KUBECONFIG" get node "$NODE" \
+      -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.status}{end}' 2>/dev/null)" == "True" ]]; then
+      ready=1
+      break
+    fi
+    hb="$(kubectl --kubeconfig "$WL_KUBECONFIG" get node "$NODE" \
+      -o jsonpath='{range .status.conditions[?(@.type=="Ready")]}{.lastHeartbeatTime}{end}' 2>/dev/null || true)"
+    if [[ -n "$hb" && "$hb" == "$prev_hb" ]]; then
+      stale=$(( stale + 1 ))
+    else
+      stale=0
+      prev_hb="$hb"
+    fi
+    # ~90s (6 * 15s) without the heartbeat advancing means the kubelet is frozen.
+    if [[ $stale -ge 6 && $kicks -lt 8 ]]; then
+      echo "kubelet heartbeat frozen on $NODE; restarting kubelet"
+      windows_restart_kubelet "$NODE"
+      kicks=$(( kicks + 1 ))
+      stale=0
+      prev_hb=""
+    fi
+    sleep 15
+  done
+  if [[ -z "$ready" ]]; then
+    echo "FAIL: $NODE did not become Ready" >&2
+    exit 1
+  fi
+elif ! kubectl --kubeconfig "$WL_KUBECONFIG" wait --for=condition=Ready "node/${NODE}" --timeout="$READY_TIMEOUT"; then
   echo "FAIL: $NODE did not become Ready" >&2
   exit 1
 fi

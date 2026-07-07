@@ -11,6 +11,10 @@
 # hard failure leaks it; Packer still cleans it up itself on success or a graceful
 # failure.
 #
+# For Windows, a second jq patch works around an image-builder gap that makes Azure
+# OS provisioning intermittently time out (OSProvisioningTimedOut). See the inline
+# comment on the patch below.
+#
 # hack/run-build-job.sh fills in the placeholders and applies this to the builder
 # cluster.
 apiVersion: batch/v1
@@ -54,6 +58,25 @@ spec:
                   packer/azure/packer.json > /tmp/packer.json
                 mv /tmp/packer.json packer/azure/packer.json
               fi
+              # Windows image-builder gap: after "sysprep /generalize" the built-in
+              # Administrator is left flagged "must change password at next logon", so
+              # on first boot the OOBE auto-logon blocks on the LogonUI password dialog
+              # and cloudbase-init never signals provisioning-ready, giving Azure an
+              # intermittent OSProvisioningTimedOut (the delay is a race, so the same
+              # image sometimes provisions and sometimes times out). Insert a
+              # pre-sysprep provisioner that disables the built-in Administrator (its
+              # normal Azure state; cloudbase-init still renames it to capi and sets its
+              # password in the post-OOBE main phase) and stops the packer build user's
+              # password from expiring after the default 42 days.
+              case "__TARGET__" in
+              *windows*)
+                if [ -f packer/azure/packer-windows.json ]; then
+                  jq '.provisioners |= [ .[] | if (.script? == "packer/azure/scripts/sysprep.ps1") then ({"type":"powershell","elevated_user":"packer","elevated_password":"{{.WinRMPassword}}","inline":["net accounts /maxpwage:unlimited","Disable-LocalUser -Name Administrator -ErrorAction SilentlyContinue"]}, .) else . end ]' \
+                    packer/azure/packer-windows.json > /tmp/packer-windows.json
+                  mv /tmp/packer-windows.json packer/azure/packer-windows.json
+                fi
+                ;;
+              esac
               make __TARGET__
           env:
             - name: AZURE_SUBSCRIPTION_ID

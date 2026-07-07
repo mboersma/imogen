@@ -223,6 +223,15 @@ trip the MCP client's timeout (the agent would then narrate a timeout as success
 Failed or NotFound), until it is Succeeded. Both run only after validation passes and approval is
 granted.
 
+The `promote-image` tool enforces the validation gate itself: it refuses to promote unless that
+flavor/version's validation has Succeeded (the state `validate-image` records), returning an error while
+validation is Running, Failed, or absent. This is deterministic rather than trusting the reconcile
+prompt, because the agent was observed calling `promote-image` while a validation was still Running and
+even after one Failed, which published unvalidated Windows images to the community gallery. The reconcile
+loop self-heals around the gate: if the validation state was lost to a tool server restart, the next pass
+re-validates before promoting. Set `IMOGEN_PROMOTE_REQUIRE_VALIDATION=0` to bypass the gate for a
+deliberate manual promotion of an image validated out of band.
+
 Gallery image versions are immutable, so rebuilding a version that already exists in the community
 gallery means deleting it and recreating it from staging. Passing `--replace` to the script (or
 `replace=true` to the tool) does exactly that: it deletes the existing community version first, then

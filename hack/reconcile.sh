@@ -80,7 +80,9 @@ completion in this turn: a later turn will pick up whatever is still running. Fo
 get-validation-status. If it reports Succeeded, the image has already validated, so promote it now: \
 call promote-image and poll get-promote-status until it reports Succeeded. If it reports NotFound, call \
 validate-image to start validation. If it reports Running, validation is already in progress from an \
-earlier turn, so leave it. You do not need to wait for slow validations (a Windows node join takes many \
+earlier turn, so leave it. Never call promote-image while validation is Running or after it Failed: \
+promote-image refuses to promote anything whose validation has not Succeeded, so promoting early just \
+fails. You do not need to wait for slow validations (a Windows node join takes many \
 minutes); promote everything already validated, make sure validation has been started for everything \
 else, poll and promote any that finish quickly, then move on. If validation Failed, do NOT promote; \
 report the failure and move on."

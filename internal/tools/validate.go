@@ -140,6 +140,23 @@ type getValidationStatusOutput struct {
 	Summary string `json:"summary"`
 }
 
+// validationState reports the recorded validation outcome for a flavor/version,
+// matching get-validation-status: "Succeeded", "Failed", "Running" or "NotFound".
+func validationState(flavor, version string) string {
+	logPath, donePath := validateStatePaths(flavor, version)
+	code, done := readDone(donePath)
+	if !done {
+		if !fileExists(logPath) {
+			return "NotFound"
+		}
+		return "Running"
+	}
+	if code == 0 {
+		return "Succeeded"
+	}
+	return "Failed"
+}
+
 func registerGetValidationStatus(server *mcp.Server) {
 	auditedTool(server, &mcp.Tool{
 		Name:        "get-validation-status",
@@ -150,26 +167,12 @@ func registerGetValidationStatus(server *mcp.Server) {
 		}
 		throttlePoll(ctx)
 		version := strings.TrimPrefix(in.Version, "v")
-		logPath, donePath := validateStatePaths(in.Flavor, version)
+		logPath, _ := validateStatePaths(in.Flavor, version)
 
 		out := getValidationStatusOutput{Flavor: in.Flavor, Version: version}
-
-		code, done := readDone(donePath)
-		if !done {
-			if !fileExists(logPath) {
-				out.State = "NotFound"
-				return nil, out, nil
-			}
-			out.State = "Running"
+		out.State = validationState(in.Flavor, version)
+		if out.State != "NotFound" {
 			out.Summary = lastLines(readFile(logPath), 20)
-			return nil, out, nil
-		}
-
-		out.Summary = lastLines(readFile(logPath), 20)
-		if code == 0 {
-			out.State = "Succeeded"
-		} else {
-			out.State = "Failed"
 		}
 		return nil, out, nil
 	})

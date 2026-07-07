@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/mboersma/imogen/internal/azure"
@@ -36,7 +37,7 @@ type promoteImageOutput struct {
 func registerPromoteImage(server *mcp.Server) {
 	auditedTool(server, &mcp.Tool{
 		Name:        "promote-image",
-		Description: "Start promoting a validated image version from the staging gallery to the community gallery. Call only after validation passes and approval is granted. Returns immediately; poll get-promote-status until the state is Succeeded. Set replace=true to rebuild a version that already exists in the community gallery in place (it is deleted first, so the version is briefly absent).",
+		Description: "Start promoting a validated image version from the staging gallery to the community gallery. The image's validation must have Succeeded (get-validation-status); promote-image refuses otherwise, so never promote while validation is Running or after it Failed. Returns immediately; poll get-promote-status until the state is Succeeded. Set replace=true to rebuild a version that already exists in the community gallery in place (it is deleted first, so the version is briefly absent).",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in promoteImageInput) (*mcp.CallToolResult, promoteImageOutput, error) {
 		if in.Flavor == "" || in.Version == "" {
 			return nil, promoteImageOutput{}, fmt.Errorf("flavor and version are required")
@@ -50,6 +51,21 @@ func registerPromoteImage(server *mcp.Server) {
 
 		version := strings.TrimPrefix(in.Version, "v")
 		definition := definitionFor(in.Flavor)
+
+		// Never promote an image whose validation did not pass. The reconcile
+		// agent has been observed calling promote-image while validation was still
+		// Running, or after it Failed, which would publish an unvalidated image to
+		// the community gallery. The validation outcome is recorded by
+		// validate-image, so the gate is enforced here where the agent cannot skip
+		// it rather than trusting the prompt. The loop self-heals: if the state was
+		// lost to a tool server restart, the next reconcile pass re-validates
+		// before promoting. Set IMOGEN_PROMOTE_REQUIRE_VALIDATION=0 to bypass (for
+		// a deliberate manual promotion of an image validated out of band).
+		if os.Getenv("IMOGEN_PROMOTE_REQUIRE_VALIDATION") != "0" {
+			if st := validationState(in.Flavor, version); st != "Succeeded" {
+				return nil, promoteImageOutput{}, fmt.Errorf("refusing to promote %s %s: its validation state is %s, not Succeeded; run validate-image and wait for get-validation-status to report Succeeded before promoting", in.Flavor, version, st)
+			}
+		}
 
 		subscriptionID, err := azure.SubscriptionID(ctx)
 		if err != nil {

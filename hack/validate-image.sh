@@ -48,6 +48,24 @@ IMAGE_VERSION="${VERSION#v}"
 K8S_VERSION="v${IMAGE_VERSION}"
 IMAGE_DEFINITION="capi-${FLAVOR}"
 
+# Give up on a version that keeps failing validation. The validate-image tool
+# retries a Failed run (a node join, especially Windows, can flake), and the
+# reconcile loop re-invokes it every pass until it Succeeds, so a genuinely broken
+# image would boot a fresh node forever. Count attempts in a small state file and,
+# once the cap is reached, refuse fast (before booting a VM) so get-validation-status
+# keeps reporting Failed and a human is asked to look instead.
+VALIDATE_MAX_ATTEMPTS="${IMOGEN_VALIDATE_MAX_ATTEMPTS:-3}"
+VALIDATE_STATE_DIR="${IMOGEN_VALIDATE_STATE_DIR:-${TMPDIR:-/tmp}}"
+ATTEMPT_KEY="$(printf '%s' "${FLAVOR}-${IMAGE_VERSION}" | tr -c 'A-Za-z0-9._-' '-')"
+ATTEMPT_FILE="${VALIDATE_STATE_DIR%/}/imogen-validate-${ATTEMPT_KEY}.attempts"
+ATTEMPTS="$(cat "$ATTEMPT_FILE" 2>/dev/null || echo 0)"
+[[ "$ATTEMPTS" =~ ^[0-9]+$ ]] || ATTEMPTS=0
+if [[ "$ATTEMPTS" -ge "$VALIDATE_MAX_ATTEMPTS" ]]; then
+  echo "Validation of ${FLAVOR} ${IMAGE_VERSION} has failed ${ATTEMPTS} time(s), at the ${VALIDATE_MAX_ATTEMPTS}-attempt cap; not retrying. A human should investigate before it is validated again." >&2
+  exit 1
+fi
+echo $((ATTEMPTS + 1)) > "$ATTEMPT_FILE"
+
 # Windows validation differs from Linux: it uses a Windows MachineDeployment
 # template, applies a version-matched Windows kube-proxy DaemonSet (the builder
 # already carries Calico HNS and the Windows cloud-node-manager), waits longer
@@ -275,4 +293,7 @@ if ! kubectl --kubeconfig "$WL_KUBECONFIG" wait --for=jsonpath='{.status.phase}'
 fi
 
 echo
+# Validation passed, so clear the failure counter: a later re-validation of this
+# version (after a rebuild) starts fresh rather than inheriting old failures.
+rm -f "$ATTEMPT_FILE"
 echo "PASS: ${IMAGE_DEFINITION} ${IMAGE_VERSION} booted, ran kubelet ${KUBELET}, and scheduled a pod."

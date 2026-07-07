@@ -250,10 +250,16 @@ apiserver connection, and the image's in-bootstrap `RestartKubelet.ps1` runs too
 until the node goes Ready. With both fixes, windows-2022 1.34.9 passed validation three times
 unattended. The provisioning fix is a candidate to upstream into image-builder.
 
-Running the watcher this long also exposed two watcher bugs still to fix: the reconcile loop ran well
-past `IMOGEN_RECONCILE_TIMEOUT` and the Job's `activeDeadlineSeconds` (a single run went 6h+), and it
-never gives up on a persistently-failing build, so a version that keeps failing validation stays a
-build item forever and is resubmitted every pass, spinning the loop on a broken image indefinitely.
+Running the watcher this long also exposed a give-up gap, now fixed. A version that could not be built
+or validated (a broken Windows image, or a persistent Azure capacity failure) kept coming back as a work
+item every reconcile pass, so the loop rebuilt or re-validated a broken image indefinitely up to its
+deadline. `run-build-job.sh` now caps build retries per version (`IMOGEN_BUILD_MAX_ATTEMPTS`, default 3,
+tracked in the Job's `imogen.build/attempt` annotation) and, past the cap, leaves the Job Failed instead
+of recreating it; `validate-image.sh` caps validation retries the same way (`IMOGEN_VALIDATE_MAX_ATTEMPTS`,
+default 3) and refuses fast before booting a node. A capped item keeps reporting Failed so the agent
+surfaces it for a human via `notify` rather than spinning on it. (The earlier "timeout not enforced" was a
+misread: the stress-test CronJob deliberately set a 12h `IMOGEN_RECONCILE_TIMEOUT`, so the long run was
+within budget, not a runaway.)
 
 Scaling and footprint. Two refinements were evaluated for how the builder cluster scales and
 how small the idle footprint can get.

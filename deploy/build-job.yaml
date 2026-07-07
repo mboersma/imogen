@@ -25,6 +25,11 @@ metadata:
   labels:
     app: imogen-build
     imogen.build/flavor: __FLAVOR__
+  annotations:
+    # How many times run-build-job.sh has (re)created this build for this exact
+    # version. It caps retries so a broken image is not rebuilt every reconcile
+    # pass forever; see the attempt cap in hack/run-build-job.sh.
+    imogen.build/attempt: "__BUILD_ATTEMPT__"
 spec:
   backoffLimit: 0
   ttlSecondsAfterFinished: 86400

@@ -111,19 +111,41 @@ fi
 WL_KUBECONFIG="$(imogen_builder_kubeconfig)"
 trap 'rm -f "$WL_KUBECONFIG"' EXIT
 
-# If a build for this flavor and version is already running (or pending a node)
-# from an earlier reconcile turn, leave it alone and just return its name. The
-# reconcile loop re-invokes submit-build-job for versions still missing from
-# staging, and replace --force below would delete the in-flight Job and restart
-# the build from scratch, so it would never finish. .status.active counts pending
-# and running pods, so this also covers a build still waiting for the autoscaler.
-ACTIVE="$(kubectl --kubeconfig "$WL_KUBECONFIG" get job "$NAME" \
-  -o jsonpath='{.status.active}' 2>/dev/null || true)"
+# Inspect any existing Job for this exact flavor and version so a reconcile loop
+# that re-invokes submit-build-job every pass neither clobbers an in-flight build
+# nor rebuilds a broken image forever.
+EXISTING="$(kubectl --kubeconfig "$WL_KUBECONFIG" get job "$NAME" -o json 2>/dev/null || true)"
+ACTIVE=0
+FAILED=0
+ATTEMPT=0
+if [[ -n "$EXISTING" ]]; then
+  ACTIVE="$(printf '%s' "$EXISTING" | jq -r '.status.active // 0')"
+  FAILED="$(printf '%s' "$EXISTING" | jq -r '.status.failed // 0')"
+  ATTEMPT="$(printf '%s' "$EXISTING" | jq -r '.metadata.annotations["imogen.build/attempt"] // "0"')"
+fi
+
+# A build already running (or pending a node) from an earlier turn is left alone:
+# replace --force below would delete the in-flight Job and restart the build from
+# scratch, so it would never finish. .status.active counts pending and running
+# pods, so this also covers a build still waiting for the autoscaler.
 if [[ "${ACTIVE:-0}" =~ ^[0-9]+$ && "${ACTIVE:-0}" -gt 0 ]]; then
   echo "Build Job $NAME is already active; leaving it running" >&2
   echo "$NAME"
   exit 0
 fi
+
+# A previous attempt for this exact version failed. Retry a bounded number of
+# times, since a build can flake on transient Azure capacity, but once the cap is
+# reached stop recreating the Job: leave it Failed so get-build-status keeps
+# reporting Failed and a human is asked to look, instead of rebuilding a broken
+# image every reconcile pass for hours.
+MAX_ATTEMPTS="${IMOGEN_BUILD_MAX_ATTEMPTS:-3}"
+if [[ "${FAILED:-0}" =~ ^[0-9]+$ && "${FAILED:-0}" -gt 0 && "${ATTEMPT:-0}" -ge "$MAX_ATTEMPTS" ]]; then
+  echo "Build Job $NAME has failed on ${ATTEMPT} attempt(s), at the ${MAX_ATTEMPTS}-attempt cap; not rebuilding. A human should investigate before it is retried." >&2
+  echo "$NAME"
+  exit 1
+fi
+BUILD_ATTEMPT=$((ATTEMPT + 1))
 
 # Sweep any temporary build resource groups leaked by an earlier hard failure
 # before starting a new build. Age-guarded and imogen-scoped, so it never touches
@@ -153,6 +175,7 @@ sed \
   -e "s|__PACKER_FLAGS__|${PACKER_FLAGS}|g" \
   -e "s|__BUILD_TAG__|${NAME}|g" \
   -e "s|__BUILD_TS__|${BUILD_TS}|g" \
+  -e "s|__BUILD_ATTEMPT__|${BUILD_ATTEMPT}|g" \
   "$DIR/deploy/build-job.yaml" | kubectl --kubeconfig "$WL_KUBECONFIG" replace --force -f - >/dev/null
 
 echo "$NAME"

@@ -178,8 +178,13 @@ to give it a node; the autoscaler scales back to zero once the build finishes (s
 below). `hack/run-build-job.sh` applies `deploy/build-job.yaml` and returns immediately with the
 Job name. A Job spec is immutable, so it force-recreates (`kubectl replace --force`) any prior Job of
 the same name, which lets a failed build be retried and an existing version be rebuilt without a manual
-cleanup step. `hack/build-status.sh <job>` reports the Job state (Pending, Running, Succeeded, Failed or
-NotFound). The `submit-build-job` and `get-build-status` MCP tools wrap the same two scripts.
+cleanup step. A build already active is left running rather than clobbered (`.status.active > 0`), and a
+build that keeps failing is retried only up to `IMOGEN_BUILD_MAX_ATTEMPTS` (default 3), tracked in the
+Job's `imogen.build/attempt` annotation. Past the cap it stops recreating the Job and leaves it Failed,
+so the reconcile loop does not rebuild a broken image every pass for hours and `get-build-status` keeps
+reporting Failed until a human looks. `hack/build-status.sh <job>` reports the Job state (Pending,
+Running, Succeeded, Failed or NotFound). The `submit-build-job` and `get-build-status` MCP tools wrap the
+same two scripts.
 
 `run-build-job.sh` passes `kubernetes_deb_version` to image-builder for Ubuntu flavors, which installs
 it verbatim (`kubelet={{ kubernetes_deb_version }}`), so the value must match a real published package.
@@ -277,6 +282,10 @@ node. The validation node is annotated to skip drain on teardown so a
 node without working CNI does not block deletion. Everything is torn down on exit unless
 `IMOGEN_VALIDATE_KEEP=1` is set. The script replicates the staging image to the builder region
 (`IMOGEN_BUILDER_LOCATION`) first if needed, since builds publish only to the gallery home region.
+Like a build, a validation that keeps failing is retried only up to `IMOGEN_VALIDATE_MAX_ATTEMPTS`
+(default 3), counted in a small state file next to the run's log; past the cap the script refuses fast
+before booting a VM, so a genuinely broken image does not boot a fresh validation node every reconcile
+pass forever. A passing run clears the counter so a later re-validation after a rebuild starts fresh.
 
 Each validation reuses one fixed-name MachineDeployment per OS type (`imogen-builder-validate` for
 Linux, `imogen-builder-vwin` for Windows; the Windows name stays short because a Windows VM name is

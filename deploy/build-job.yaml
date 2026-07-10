@@ -79,6 +79,10 @@ spec:
               # normal Azure state; cloudbase-init still renames it to capi and sets its
               # password in the post-OOBE main phase) and stops the packer build user's
               # password from expiring after the default 42 days.
+              # TODO: drop this patch once a released image-builder includes the fix.
+              # Merged upstream in kubernetes-sigs/image-builder#2117 (in main, not yet
+              # in a tagged release); when it ships, bump the pinned image-builder
+              # version and delete this *windows* case.
               case "__TARGET__" in
               *windows*)
                 if [ -f packer/azure/packer-windows.json ]; then

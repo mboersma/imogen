@@ -439,10 +439,15 @@ In:
 Out (later phases):
 - ~~Windows 2022/2025~~ — done (Phase 2): full node-join validation with Calico HNS, a version-matched
   Windows kube-proxy, the Windows cloud-node-manager, and a HostProcess smoke pod.
-- Ubuntu 26.04, Azure Linux 4 — Phase 2/3.
-- Autoscaler scale-from-zero for builder pool — Phase 2.
-- CVE-triggered rebuilds + EOL cleanup automation — Phase 3.
-- Multi-agent role split, self-service triggers, full release-watcher automation — Phase 3.
+- ~~Ubuntu 26.04~~ — done. Azure Linux: `azurelinux-3` is live; Azure Linux 4 is deferred until
+  image-builder ships it (currently only `azurelinux-3`).
+- ~~Autoscaler scale-from-zero for builder pool~~ — done (Phase 2): cluster-autoscaler scales the
+  builder MachinePool 0↔N from pending build pods.
+- ~~EOL cleanup automation~~ — done: `gc-eol-images` retires whole minors past their upstream EOL
+  grace, applied unattended by the release-watcher. CVE-triggered rebuilds — still Phase 3.
+- ~~Full release-watcher automation~~ — done: a daily CronJob drives build→validate→promote
+  unattended (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`). Multi-agent role split and self-service triggers
+  — still Phase 3.
 
 ### MVP milestones
 1. Bootstrap AKS mgmt cluster + CAPZ + Workload Identity; create staging & community galleries.

@@ -180,15 +180,34 @@ func registerGetValidationStatus(server *mcp.Server) {
 
 var validateKeyUnsafe = regexp.MustCompile(`[^a-zA-Z0-9._-]+`)
 
-// validateStatePaths returns the log and done file paths for a flavor/version run.
-func validateStatePaths(flavor, version string) (logPath, donePath string) {
+// stateDir is the directory the tools keep their small run-state files in (the
+// validation log/done/attempts files and the build "blocked" marker). It matches
+// the default the hack scripts use (IMOGEN_VALIDATE_STATE_DIR, else the system
+// temp dir), so Go and the scripts read and write the same paths.
+func stateDir() string {
 	dir := os.Getenv("IMOGEN_VALIDATE_STATE_DIR")
 	if dir == "" {
 		dir = os.TempDir()
 	}
-	key := validateKeyUnsafe.ReplaceAllString(flavor+"-"+version, "-")
-	base := filepath.Join(dir, "imogen-validate-"+key)
+	return dir
+}
+
+// validateStateKey sanitizes a flavor/version into the file-name stem the tools
+// and hack/validate-image.sh both use.
+func validateStateKey(flavor, version string) string {
+	return validateKeyUnsafe.ReplaceAllString(flavor+"-"+version, "-")
+}
+
+// validateStatePaths returns the log and done file paths for a flavor/version run.
+func validateStatePaths(flavor, version string) (logPath, donePath string) {
+	base := filepath.Join(stateDir(), "imogen-validate-"+validateStateKey(flavor, version))
 	return base + ".log", base + ".done"
+}
+
+// validateAttemptsPath is the counter file hack/validate-image.sh increments per
+// attempt (imogen-validate-<key>.attempts); it caps retries at that count.
+func validateAttemptsPath(flavor, version string) string {
+	return filepath.Join(stateDir(), "imogen-validate-"+validateStateKey(flavor, version)+".attempts")
 }
 
 func fileExists(path string) bool {
@@ -202,6 +221,20 @@ func readFile(path string) string {
 		return ""
 	}
 	return string(b)
+}
+
+// readIntFile reads a small file holding a single integer (such as the
+// validation attempts counter), returning 0 when it is missing or unparseable.
+func readIntFile(path string) int {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return 0
+	}
+	return n
 }
 
 // readDone reports whether the done file exists and, if so, the exit code it holds.

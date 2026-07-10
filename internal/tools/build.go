@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -64,6 +65,22 @@ func registerSubmitBuildJob(server *mcp.Server) {
 			ImageVersion:    sigVersion,
 		}, nil
 	})
+}
+
+// buildBlockedPath is the marker hack/run-build-job.sh writes when a build has
+// exhausted its retry cap (imogen-build-<key>.blocked). The build's attempt count
+// lives on the builder-cluster Job annotation, not the tool server filesystem, so
+// the script drops this marker where list-reconcile-plan can see it (and clears it
+// whenever it starts or retries a build).
+func buildBlockedPath(flavor, version string) string {
+	key := validateStateKey(flavor, strings.TrimPrefix(version, "v"))
+	return filepath.Join(stateDir(), "imogen-build-"+key+".blocked")
+}
+
+// buildBlocked reports whether a build for this flavor/version is at its retry
+// cap and a human needs to look before it is retried.
+func buildBlocked(flavor, version string) bool {
+	return fileExists(buildBlockedPath(flavor, version))
 }
 
 // buildJobName is the Kubernetes Job name run-build-job.sh uses for a flavor and

@@ -3,7 +3,9 @@ package tools
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mboersma/imogen/internal/azure"
@@ -35,10 +37,12 @@ type listReconcilePlanInput struct {
 }
 
 type reconcileWorkItem struct {
-	Flavor  string `json:"flavor"`
-	Version string `json:"version"`
-	Minor   string `json:"minor"`
-	Action  string `json:"action"` // "build" or "validate-promote"
+	Flavor        string `json:"flavor"`
+	Version       string `json:"version"`
+	Minor         string `json:"minor"`
+	Action        string `json:"action"` // "build" or "validate-promote"
+	Blocked       bool   `json:"blocked,omitempty"`
+	BlockedReason string `json:"blockedReason,omitempty"`
 }
 
 type listReconcilePlanOutput struct {
@@ -48,13 +52,14 @@ type listReconcilePlanOutput struct {
 	MinorCount       int                 `json:"minorCount"`
 	Flavors          []string            `json:"flavors"`
 	UpToDate         bool                `json:"upToDate"`
+	Stuck            bool                `json:"stuck"`
 	Work             []reconcileWorkItem `json:"work"`
 }
 
 func registerListReconcilePlan(server *mcp.Server) {
 	auditedTool(server, &mcp.Tool{
 		Name:        "list-reconcile-plan",
-		Description: "Compute exactly which image versions the community gallery is missing and how to close each gap. For every recent Kubernetes minor's latest stable patch and every flavor, it diffs the staging and community galleries and returns an explicit work list: action=build for versions missing from both galleries, action=validate-promote for versions already in staging but not community. Versions already in the community gallery are omitted, and upToDate is true when there is no work. Use this instead of computing the gap by hand.",
+		Description: "Compute exactly which image versions the community gallery is missing and how to close each gap. For every recent Kubernetes minor's latest stable patch and every flavor, it diffs the staging and community galleries and returns an explicit work list: action=build for versions missing from both galleries, action=validate-promote for versions already in staging but not community. Versions already in the community gallery are omitted, and upToDate is true when there is no work. An item whose build or validation has exhausted its retry cap is marked blocked=true with a blockedReason; stuck=true means every outstanding item is blocked, so a human must intervene. Use this instead of computing the gap by hand.",
 	}, func(ctx context.Context, _ *mcp.CallToolRequest, in listReconcilePlanInput) (*mcp.CallToolResult, listReconcilePlanOutput, error) {
 		rg := envOr(in.ResourceGroup, "IMOGEN_RESOURCE_GROUP")
 		staging := galleryFor("", "staging")
@@ -92,6 +97,19 @@ func registerListReconcilePlan(server *mcp.Server) {
 			work = append(work, diffFlavor(flavor, releases, stagingVersions, communityVersions)...)
 		}
 
+		// Flag any work item whose build or validation has exhausted its retry
+		// cap. When every outstanding item is blocked the loop cannot make
+		// progress, so report stuck=true and let the release watcher give up and
+		// ask a human instead of retrying broken work until its deadline.
+		annotateBlocked(work)
+		stuck := len(work) > 0
+		for i := range work {
+			if !work[i].Blocked {
+				stuck = false
+				break
+			}
+		}
+
 		return nil, listReconcilePlanOutput{
 			ResourceGroup:    rg,
 			StagingGallery:   staging,
@@ -99,9 +117,53 @@ func registerListReconcilePlan(server *mcp.Server) {
 			MinorCount:       minorCount,
 			Flavors:          flavors,
 			UpToDate:         len(work) == 0,
+			Stuck:            stuck,
 			Work:             work,
 		}, nil
 	})
+}
+
+// annotateBlocked marks each work item whose build or validation has failed its
+// retry cap. A blocked item cannot be closed by another reconcile pass, so the
+// watcher surfaces it for a human rather than retrying it forever.
+func annotateBlocked(work []reconcileWorkItem) {
+	for i := range work {
+		switch work[i].Action {
+		case "build":
+			if buildBlocked(work[i].Flavor, work[i].Version) {
+				work[i].Blocked = true
+				work[i].BlockedReason = fmt.Sprintf("build failed its %d-attempt cap; a human must investigate before it is retried", buildMaxAttempts())
+			}
+		case "validate-promote":
+			if validateBlocked(work[i].Flavor, work[i].Version) {
+				work[i].Blocked = true
+				work[i].BlockedReason = fmt.Sprintf("validation failed its %d-attempt cap; a human must investigate before it is retried", validateMaxAttempts())
+			}
+		}
+	}
+}
+
+// validateBlocked reports whether validation for a flavor/version has failed and
+// reached its attempt cap, matching hack/validate-image.sh's refusal.
+func validateBlocked(flavor, version string) bool {
+	if validationState(flavor, version) != "Failed" {
+		return false
+	}
+	return readIntFile(validateAttemptsPath(flavor, version)) >= validateMaxAttempts()
+}
+
+// buildMaxAttempts and validateMaxAttempts mirror the caps the hack scripts
+// enforce (IMOGEN_BUILD_MAX_ATTEMPTS / IMOGEN_VALIDATE_MAX_ATTEMPTS, default 3).
+func buildMaxAttempts() int    { return capFromEnv("IMOGEN_BUILD_MAX_ATTEMPTS") }
+func validateMaxAttempts() int { return capFromEnv("IMOGEN_VALIDATE_MAX_ATTEMPTS") }
+
+func capFromEnv(name string) int {
+	if v := os.Getenv(name); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			return n
+		}
+	}
+	return 3
 }
 
 // diffFlavor returns the work needed to bring one flavor's community-gallery

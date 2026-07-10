@@ -34,7 +34,7 @@ Pipeline (build → validate → promote → cleanup), with a human-approval gat
 | Tool (MCP)                  | Action |
 |-----------------------------|--------|
 | `list-k8s-releases`         | Enumerate upstream Kubernetes releases in scope |
-| `list-reconcile-plan`       | Diff in-scope releases against both galleries per flavor; return the exact work list (build vs validate-promote) |
+| `list-reconcile-plan`       | Diff in-scope releases against both galleries per flavor; return the exact work list (build vs validate-promote), flagging items past their retry cap as `blocked` and the whole plan `stuck` when every item is blocked |
 | `list-gallery-versions`     | List image versions already in the community gallery |
 | `submit-build-job`          | Run image-builder (`build-azure-sig-<os>-<ver>`) → staging gallery |
 | `get-build-status`          | Report a build container's state (Running/Succeeded/Failed) |
@@ -529,6 +529,21 @@ re-runs a failed one). Each turn therefore just promotes whatever finished since
 advances the rest, and the gallery converges over several turns. Other tunables are env vars on the
 CronJob: `IMOGEN_RECONCILE_FLAVORS`, `IMOGEN_RECONCILE_MINORS`, `IMOGEN_RECONCILE_MAX`,
 `IMOGEN_RECONCILE_AUTO_PROMOTE`, `IMOGEN_RECONCILE_GC_APPLY`, `IMOGEN_RECONCILE_PASS_INTERVAL`.
+
+The loop also gives up rather than spinning to the deadline on genuinely broken work. `submit-build-job`
+and `validate-image` each cap retries (`IMOGEN_BUILD_MAX_ATTEMPTS` / `IMOGEN_VALIDATE_MAX_ATTEMPTS`,
+default 3) and then refuse to retry, but the loop would keep listing a capped item as work forever.
+So `list-reconcile-plan` marks any item whose build or validation has hit its cap `blocked` with a
+`blockedReason`, and reports `stuck` when the work list is non-empty and every item is blocked.
+`reconcile.sh` scrapes `stuck` from the plan result the same way it scrapes `upToDate`, and exits
+non-zero when it sees it, so a run that cannot make progress ends promptly instead of at the timeout.
+Blocked detection differs by action because the attempt counts live in different places: a validation's
+counter is a state file on the tool server so the plan reads it directly, while a build's count is a
+Job annotation on the builder cluster the plan cannot see, so `run-build-job.sh` drops an
+`imogen-build-<flavor>-<version>.blocked` marker file next to the validation state (same
+`IMOGEN_VALIDATE_STATE_DIR`) when it refuses at the cap and clears it whenever it starts or retries a
+build. The reconcile prompt tells the agent to skip blocked items and name them in a `level=approval`
+notify, so a human is paged; the shell exit is what deterministically stops the loop.
 
 While a build, validation or promotion is in flight the agent polls its status tool in a tight loop,
 and each poll is a full LLM turn that resends the growing conversation. Left unthrottled that loop can

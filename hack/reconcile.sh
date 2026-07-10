@@ -119,7 +119,9 @@ Steps:
 analysis for you and returns an explicit work list: each item has a flavor, a version, and an action of \
 either build or validate-promote. Trust this list completely; do NOT recompute the gap yourself or skip \
 items. If it returns upToDate true (an empty work list), every in-scope version is already in the \
-community gallery, so skip to step 4 and say so.
+community gallery, so skip to step 4 and say so. Any work item marked blocked true has already exhausted \
+its build or validation retry cap: do NOT build, validate, or promote it this run, since retrying it \
+would only fail again. Skip every blocked item and collect them for the notify in step 6.
 2. ${PROMOTE_STEP}
 3. ${BUILD_STEP}
 4. ${GC_STEP}
@@ -133,9 +135,9 @@ completion; end the turn and let the loop re-invoke you.
 6. Finally, call notify once with a short summary of what you found and did this run (level=info). Your \
 summary must describe only what the tools actually confirmed: never say a version was built, validated, \
 promoted, or deleted unless the corresponding tool confirmed it for that version this run. If a step did \
-not finish or is still in progress, say so plainly rather than assuming success. If \
-anything needs a human, such as a step you could not complete, also call \
-notify with level=approval describing exactly what you need.
+not finish or is still in progress, say so plainly rather than assuming success. If there are any blocked \
+work items, or anything else needs a human, such as a step you could not complete, also call \
+notify with level=approval naming exactly which versions are blocked and why, and what you need.
 
 Report a short summary of what you found and what you did."
 
@@ -185,6 +187,7 @@ EVENT_FILTER='
 TASK_ID=""
 TASK_STATE=""
 UP_TO_DATE=""
+STUCK=""
 
 # consume reads an SSE stream on stdin, prints events, and tracks the task id and
 # latest task state in the TASK_ID / TASK_STATE globals. It also captures the
@@ -207,13 +210,19 @@ consume() {
     state="$(printf '%s' "$data" | jq -r '.result.status.state // empty' 2>/dev/null || true)"
     [[ -n "$state" ]] && TASK_STATE="$state"
 
-    # The plan tool result carries upToDate; it arrives inside an escaped JSON
-    # string, so match the field textually rather than parsing the nested JSON.
+    # The plan tool result carries upToDate and stuck; both arrive inside an
+    # escaped JSON string, so match the fields textually rather than parsing the
+    # nested JSON.
     if printf '%s' "$data" | grep -q 'list-reconcile-plan'; then
       plan="$(printf '%s' "$data" | grep -oE 'upToDate[^,}]*' | head -1 || true)"
       case "$plan" in
         *true*) UP_TO_DATE=true ;;
         *false*) UP_TO_DATE=false ;;
+      esac
+      plan="$(printf '%s' "$data" | grep -oE 'stuck[^,}]*' | head -1 || true)"
+      case "$plan" in
+        *true*) STUCK=true ;;
+        *false*) STUCK=false ;;
       esac
     fi
 
@@ -289,6 +298,7 @@ while :; do
 
   PASS=$((PASS + 1))
   UP_TO_DATE=""
+  STUCK=""
   echo "=== reconcile pass ${PASS} ==="
   follow_task
 
@@ -301,6 +311,14 @@ while :; do
   if [[ "$UP_TO_DATE" == "true" ]]; then
     echo "Reconcile complete: the community gallery is up to date after ${PASS} pass(es)."
     exit 0
+  fi
+
+  # Every outstanding item has exhausted its build or validation retry cap, so
+  # another pass would only retry broken work until the deadline. Give up and let
+  # the agent's run leave a level=approval notification for a human.
+  if [[ "$STUCK" == "true" ]]; then
+    echo "Reconcile stuck after ${PASS} pass(es): every outstanding image is blocked at its retry cap; a human must investigate."
+    exit 1
   fi
 
   # Not up to date yet (the turn ended, or failed, with work still outstanding).

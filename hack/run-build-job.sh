@@ -51,6 +51,15 @@ TARGET="build-azure-sig-${FLAVOR}"
 NAME="imogen-build-${FLAVOR}-${SIG_VERSION//./-}"
 BUILD_TS="$(date -u +%s)"
 
+# Marker the reconcile plan reads to know a build has given up. The build's attempt
+# count lives on the Job annotation below, which list-reconcile-plan (filesystem
+# only, no cluster access) cannot see, so we drop a marker here where it can. The
+# key must match internal/tools buildBlockedPath: sanitize flavor-version the same
+# way validate-image.sh does. Cleared whenever we start or retry a build.
+STATE_DIR="${IMOGEN_VALIDATE_STATE_DIR:-${TMPDIR:-/tmp}}"
+BLOCK_KEY="$(printf '%s' "${FLAVOR}-${SIG_VERSION}" | tr -c 'A-Za-z0-9._-' '-')"
+BLOCK_FILE="${STATE_DIR%/}/imogen-build-${BLOCK_KEY}.blocked"
+
 # Every flavor pins the Kubernetes version so the gallery version label matches
 # what is installed. The package variable is OS-specific: Ubuntu installs a .deb,
 # Azure Linux installs an .rpm, and Windows downloads binaries by semver and needs
@@ -130,6 +139,7 @@ fi
 # pods, so this also covers a build still waiting for the autoscaler.
 if [[ "${ACTIVE:-0}" =~ ^[0-9]+$ && "${ACTIVE:-0}" -gt 0 ]]; then
   echo "Build Job $NAME is already active; leaving it running" >&2
+  rm -f "$BLOCK_FILE"
   echo "$NAME"
   exit 0
 fi
@@ -142,10 +152,13 @@ fi
 MAX_ATTEMPTS="${IMOGEN_BUILD_MAX_ATTEMPTS:-3}"
 if [[ "${FAILED:-0}" =~ ^[0-9]+$ && "${FAILED:-0}" -gt 0 && "${ATTEMPT:-0}" -ge "$MAX_ATTEMPTS" ]]; then
   echo "Build Job $NAME has failed on ${ATTEMPT} attempt(s), at the ${MAX_ATTEMPTS}-attempt cap; not rebuilding. A human should investigate before it is retried." >&2
+  : > "$BLOCK_FILE"
   echo "$NAME"
   exit 1
 fi
 BUILD_ATTEMPT=$((ATTEMPT + 1))
+# Starting or retrying a build clears any earlier give-up marker.
+rm -f "$BLOCK_FILE"
 
 # Sweep any temporary build resource groups leaked by an earlier hard failure
 # before starting a new build. Age-guarded and imogen-scoped, so it never touches

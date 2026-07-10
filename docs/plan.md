@@ -446,8 +446,10 @@ Out (later phases):
 - ~~EOL cleanup automation~~ — done: `gc-eol-images` retires whole minors past their upstream EOL
   grace, applied unattended by the release-watcher. CVE-triggered rebuilds — still Phase 3.
 - ~~Full release-watcher automation~~ — done: a daily CronJob drives build→validate→promote
-  unattended (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`). Multi-agent role split and self-service triggers
-  — still Phase 3.
+  unattended (`IMOGEN_RECONCILE_AUTO_PROMOTE=1`). When a build or validation exhausts its retry cap,
+  `list-reconcile-plan` marks the item `blocked` and the plan `stuck`, so the watcher gives up and
+  notifies a human (`level=approval`) instead of looping to its deadline. Multi-agent role split and
+  self-service triggers — still Phase 3.
 
 ### MVP milestones
 1. Bootstrap AKS mgmt cluster + CAPZ + Workload Identity; create staging & community galleries.

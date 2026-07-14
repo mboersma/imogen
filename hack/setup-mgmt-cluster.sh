@@ -53,15 +53,23 @@ if ! az aks show -g "$RESOURCE_GROUP" -n "$AKS_NAME" -o none 2>/dev/null; then
     --node-vm-size "$AKS_NODE_SIZE" \
     --generate-ssh-keys \
     --tier free \
+    --nrg-lockdown-restriction-level ReadOnly \
     -o none
 else
   echo "AKS cluster $AKS_NAME already exists"
 fi
 
-# AKS auto-creates a separate node resource group (MC_*), which the reaper sees
-# as its own group, so protect it too or the reaper could delete the cluster.
-NODE_RG="$(az aks show -g "$RESOURCE_GROUP" -n "$AKS_NAME" --query nodeResourceGroup -o tsv 2>/dev/null || true)"
-[[ -n "$NODE_RG" ]] && imogen_protect_rg "$NODE_RG"
+# AKS auto-creates a separate node resource group (MC_*) that the reaper
+# (Azure/rg-cleanup) would delete: it has no DO-NOT-DELETE tag and AKS strips
+# manually-added tags on reconcile, so a tag will not stick. Lock it down
+# instead. nrg-lockdown ReadOnly adds a deny assignment so only the cluster
+# identity can write or delete node RG resources, which blocks the reaper. This
+# is AKS-native and permanent, unlike a tag. Idempotent for existing clusters.
+CURRENT_LOCKDOWN="$(az aks show -g "$RESOURCE_GROUP" -n "$AKS_NAME" --query nodeResourceGroupProfile.restrictionLevel -o tsv 2>/dev/null || true)"
+if [[ "$CURRENT_LOCKDOWN" != "ReadOnly" ]]; then
+  echo "Enabling node resource group lockdown (ReadOnly) to protect it from the reaper"
+  az aks update -g "$RESOURCE_GROUP" -n "$AKS_NAME" --nrg-lockdown-restriction-level ReadOnly -o none
+fi
 
 echo "Fetching kubeconfig for $AKS_NAME"
 az aks get-credentials --resource-group "$RESOURCE_GROUP" --name "$AKS_NAME" --overwrite-existing

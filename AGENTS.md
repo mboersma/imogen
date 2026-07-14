@@ -165,12 +165,18 @@ per-flavor image definitions. Everything is parameterized via `IMOGEN_*` env var
 `hack/foundation.env.example`) so the dev galleries in a personal subscription can be swapped for
 the production galleries in the CNCF subscription. `hack/teardown-foundation.sh` removes them.
 
-The setup scripts tag the persistent resource groups (the foundation RG and the AKS node RG) with
-`DO-NOT-DELETE=UpstreamInfra` (`imogen_protect_rg` in `hack/lib.sh`, keys overridable via
-`IMOGEN_PERSIST_TAG_KEY`/`IMOGEN_PERSIST_TAG_VALUE`) so the CNCF subscription's cleanup reaper skips
-them. The galleries and their published community images are not reconstructible from scripts, so the
-foundation RG must never be reaped. The ephemeral builder workload cluster is deliberately left
-untagged so it stays reapable. The tag is merged, not replaced, so it never clobbers tags Azure adds.
+The setup scripts protect the persistent resource groups from the CNCF subscription's cleanup reaper
+(`Azure/rg-cleanup`, which deletes any RG lacking a `DO-NOT-DELETE` tag). The foundation RG gets the
+`DO-NOT-DELETE=UpstreamInfra` tag (`imogen_protect_rg` in `hack/lib.sh`, keys overridable via
+`IMOGEN_PERSIST_TAG_KEY`/`IMOGEN_PERSIST_TAG_VALUE`); the tag is merged, not replaced, so it never
+clobbers tags Azure adds. The galleries and their published community images are not reconstructible
+from scripts, so the foundation RG must never be reaped. The AKS-managed node resource group (MC_*) is
+a separate RG the reaper would also delete, but a tag will not stick there: AKS strips manually-added
+node RG tags on reconcile, and this CLI has no `--node-resource-group-tags` flag. So the node RG is
+protected instead with AKS node resource group lockdown (`--nrg-lockdown-restriction-level ReadOnly` in
+`hack/setup-mgmt-cluster.sh`), which adds a deny assignment allowing only the cluster identity to write
+or delete node RG resources, blocking the reaper while leaving AKS operations untouched. The ephemeral
+builder workload cluster is deliberately left unprotected so it stays reapable.
 
 ### Image build
 

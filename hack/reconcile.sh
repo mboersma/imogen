@@ -57,7 +57,7 @@ GC_APPLY="${IMOGEN_RECONCILE_GC_APPLY:-1}"
 TIMEOUT="${IMOGEN_RECONCILE_TIMEOUT:-5400}"
 PASS_INTERVAL="${IMOGEN_RECONCILE_PASS_INTERVAL:-180}"
 
-FLAVORS_CSV="$(echo "$FLAVORS" | tr ', ' '\n' | sed '/^$/d' | paste -sd ', ' -)"
+FLAVORS_CSV="$(echo "$FLAVORS" | tr ', ' '\n' | sed '/^$/d' | paste -sd , - | sed 's/,/, /g')"
 
 if [[ "$BUILD" == "1" ]]; then
   BUILD_STEP="Work items with action=build are missing from both galleries. For each (at most \

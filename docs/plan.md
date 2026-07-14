@@ -476,11 +476,26 @@ run passed end to end. The items below are deferred; none blocks running the cur
 production.
 
 ### Productionization (to go live in the CNCF subscription)
-- **Cut over from dev to CNCF galleries/subscription.** Swap `hack/foundation.env` to the CNCF
-  subscription and community gallery. Reaper protection is already in place for that environment: the
-  foundation RG carries the `DO-NOT-DELETE=UpstreamInfra` tag, the builder cluster RG gets it via CAPZ
-  `additionalTags`, and the AKS node RG is protected with node resource group lockdown (a tag will not
-  stick there). The `pkr-*` build temp RGs are deliberately left reapable.
+- **Redeploy everything in the CNCF "Kubernetes Prod" subscription and tenant (decided).** imogen runs
+  entirely within one tenant: the management cluster, builder cluster, staging gallery, agent, and the
+  published community gallery all live in the CNCF subscription. A cross-tenant split (community gallery
+  in the CNCF tenant, everything else in the dev tenant) was considered and rejected as too complex: the
+  two accounts are in different Entra tenants (`72f988bf-...` Microsoft corp, `d1aa7522-...` Kubernetes
+  prod), and secretless cross-tenant writes would need a federated app registration provisioned inside
+  the CNCF tenant (admin approval on both sides), while a stored cross-tenant secret would break the
+  no-secrets invariant. Single-tenant keeps the current secretless Workload Identity model intact with no
+  gallery-splitting code changes.
+- **Cutover mechanics.** The setup scripts are already fully parameterized via `IMOGEN_*` env vars, so
+  the move is mostly: authenticate to the CNCF tenant, point `hack/foundation.env` at the CNCF
+  subscription and galleries, and re-run `setup-foundation.sh` → `setup-mgmt-cluster.sh` →
+  `setup-build-identity.sh` → `setup-builder-cluster.sh` → `setup-openai.sh` → `setup-kagent-aks.sh`.
+  Reaper protection is already wired for that environment (foundation RG tag, builder RG tag via CAPZ
+  additionalTags, AKS node RG lockdown; `pkr-*` temp RGs left reapable).
+- **Prerequisites in the CNCF tenant.** Enough subscription rights to create the resource group,
+  galleries, user-assigned identities and their role assignments (Contributor on the imogen RG,
+  Cognitive Services OpenAI User, Managed Identity Operator), an AKS cluster with OIDC issuer +
+  workload identity, and an Azure OpenAI account with sufficient quota. Confirm these with the CNCF
+  infra admins before the cutover.
 - **Promote publisher metadata.** image-builder's community-gallery promote needs org vars
   (`EULA_LINK`, `PUBLISHER_EMAIL`, `PUBLISHER_URI`, `SIG_PUBLISHER`); set these for the real publisher.
 

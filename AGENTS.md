@@ -175,8 +175,12 @@ a separate RG the reaper would also delete, but a tag will not stick there: AKS 
 node RG tags on reconcile, and this CLI has no `--node-resource-group-tags` flag. So the node RG is
 protected instead with AKS node resource group lockdown (`--nrg-lockdown-restriction-level ReadOnly` in
 `hack/setup-mgmt-cluster.sh`), which adds a deny assignment allowing only the cluster identity to write
-or delete node RG resources, blocking the reaper while leaving AKS operations untouched. The ephemeral
-builder workload cluster is deliberately left unprotected so it stays reapable.
+or delete node RG resources, blocking the reaper while leaving AKS operations untouched. The builder
+workload cluster's resource group (`imogen-builder`) also needs the tag: it is created and owned by
+CAPZ and lives across reconcile runs (the control plane stays up, only the worker pool scales to zero),
+so it soon exceeds the reaper's few-hour TTL and an untagged one would be deleted mid-run. It is tagged
+through the AzureCluster's `additionalTags` in `hack/setup-builder-cluster.sh`, so CAPZ applies
+`DO-NOT-DELETE` to the RG and maintains it rather than a direct tag a CAPZ reconcile could drop.
 
 ### Image build
 

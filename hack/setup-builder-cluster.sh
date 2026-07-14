@@ -95,6 +95,19 @@ kubectl patch "kubeadmcontrolplane/${CLUSTER}-control-plane" --type merge -p \
 kubectl patch "machinepool/${CLUSTER}-mp-0" --type merge -p \
   "{\"spec\":{\"template\":{\"spec\":{\"deletion\":{\"nodeDrainTimeoutSeconds\":${DRAIN_TIMEOUT_SECONDS},\"nodeVolumeDetachTimeoutSeconds\":${DRAIN_TIMEOUT_SECONDS}}}}}}"
 
+# The builder workload cluster's resource group is created and owned by CAPZ and
+# lives across reconcile runs (the control plane stays up; only the worker pool
+# scales to zero), so it is soon older than the reaper's few-hour TTL. The CNCF
+# reaper (Azure/rg-cleanup) deletes any RG without a DO-NOT-DELETE tag, which
+# would delete an active builder. Set the tag through CAPZ additionalTags so CAPZ
+# applies it to the RG and keeps it, rather than tagging the RG directly where a
+# CAPZ reconcile could drop it. Patched live so it also covers existing clusters.
+PERSIST_KEY="${IMOGEN_PERSIST_TAG_KEY:-DO-NOT-DELETE}"
+PERSIST_VAL="${IMOGEN_PERSIST_TAG_VALUE:-UpstreamInfra}"
+echo "Tagging the builder cluster resource group ($PERSIST_KEY=$PERSIST_VAL) so the reaper skips it"
+kubectl patch "azurecluster/${CLUSTER}" --type merge -p \
+  "{\"spec\":{\"additionalTags\":{\"${PERSIST_KEY}\":\"${PERSIST_VAL}\"}}}"
+
 # Annotate the MachinePool for cluster-autoscaler: min/max group size and, since
 # the pool can sit at zero, the node capacity so the autoscaler can size a pod
 # against a node that does not exist yet. Capacity comes from the VM SKU unless

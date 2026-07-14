@@ -37,6 +37,7 @@ if ! az group show -n "$RESOURCE_GROUP" -o none 2>/dev/null; then
   echo "Creating resource group $RESOURCE_GROUP in $LOCATION"
   az group create -n "$RESOURCE_GROUP" -l "$LOCATION" -o none
 fi
+imogen_protect_rg "$RESOURCE_GROUP"
 
 if ! az aks show -g "$RESOURCE_GROUP" -n "$AKS_NAME" -o none 2>/dev/null; then
   echo "Checking the requested node size is available in $LOCATION"
@@ -56,6 +57,11 @@ if ! az aks show -g "$RESOURCE_GROUP" -n "$AKS_NAME" -o none 2>/dev/null; then
 else
   echo "AKS cluster $AKS_NAME already exists"
 fi
+
+# AKS auto-creates a separate node resource group (MC_*), which the reaper sees
+# as its own group, so protect it too or the reaper could delete the cluster.
+NODE_RG="$(az aks show -g "$RESOURCE_GROUP" -n "$AKS_NAME" --query nodeResourceGroup -o tsv 2>/dev/null || true)"
+[[ -n "$NODE_RG" ]] && imogen_protect_rg "$NODE_RG"
 
 echo "Fetching kubeconfig for $AKS_NAME"
 az aks get-credentials --resource-group "$RESOURCE_GROUP" --name "$AKS_NAME" --overwrite-existing

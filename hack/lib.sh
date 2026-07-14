@@ -32,6 +32,23 @@ _imogen_suggest_skus() {
     | grep -iE '^Standard_(B2|B4|D2|D4)[a-z]*s' | sort -u | head -12 | sed 's/^/  /' >&2 || true
 }
 
+# imogen_protect_rg <resource-group>
+#
+# Tag a persistent resource group so the CNCF subscription's cleanup reaper skips
+# it. The galleries, ACR, identities and OpenAI account are not reconstructible
+# from scripts (published community images especially), so the foundation RG must
+# never be reaped. Merges the tag so it does not clobber tags Azure adds, and is
+# idempotent so re-running a setup script keeps the RG protected.
+imogen_protect_rg() {
+  local rg="$1" id
+  local key="${IMOGEN_PERSIST_TAG_KEY:-DO-NOT-DELETE}"
+  local val="${IMOGEN_PERSIST_TAG_VALUE:-UpstreamInfra}"
+  id="$(az group show -n "$rg" --query id -o tsv 2>/dev/null)" || return 0
+  [[ -z "$id" ]] && return 0
+  az tag update --resource-id "$id" --operation Merge --tags "${key}=${val}" -o none
+  echo "tagged resource group ${rg} ${key}=${val}"
+}
+
 # imogen_builder_kubeconfig
 #
 # Write a kubeconfig for the builder workload cluster to a new temp file and echo

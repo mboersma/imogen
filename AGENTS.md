@@ -165,6 +165,13 @@ per-flavor image definitions. Everything is parameterized via `IMOGEN_*` env var
 `hack/foundation.env.example`) so the dev galleries in a personal subscription can be swapped for
 the production galleries in the CNCF subscription. `hack/teardown-foundation.sh` removes them.
 
+The setup scripts tag the persistent resource groups (the foundation RG and the AKS node RG) with
+`DO-NOT-DELETE=UpstreamInfra` (`imogen_protect_rg` in `hack/lib.sh`, keys overridable via
+`IMOGEN_PERSIST_TAG_KEY`/`IMOGEN_PERSIST_TAG_VALUE`) so the CNCF subscription's cleanup reaper skips
+them. The galleries and their published community images are not reconstructible from scripts, so the
+foundation RG must never be reaped. The ephemeral builder workload cluster is deliberately left
+untagged so it stays reapable. The tag is merged, not replaced, so it never clobbers tags Azure adds.
+
 ### Image build
 
 `hack/setup-build-identity.sh` creates the user-assigned managed identity the build authenticates

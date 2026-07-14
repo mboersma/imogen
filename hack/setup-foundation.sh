@@ -15,6 +15,9 @@ if [[ -f "$(dirname "$0")/foundation.env" ]]; then
   source "$(dirname "$0")/foundation.env"
 fi
 
+# shellcheck source=hack/lib.sh
+source "$(dirname "$0")/lib.sh"
+
 SUBSCRIPTION_ID="${IMOGEN_SUBSCRIPTION_ID:-$(az account show --query id -o tsv)}"
 LOCATION="${IMOGEN_LOCATION:-westus3}"
 RESOURCE_GROUP="${IMOGEN_RESOURCE_GROUP:-imogen}"
@@ -54,6 +57,7 @@ ensure_group() {
     az group create -n "$RESOURCE_GROUP" -l "$LOCATION" -o none
     echo "created resource group $RESOURCE_GROUP"
   fi
+  imogen_protect_rg "$RESOURCE_GROUP"
 }
 
 ensure_gallery() {

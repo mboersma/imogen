@@ -467,3 +467,43 @@ Out (later phases):
 - Community gallery: reuse the existing one, or stand up a new dogfood gallery?
 - Validation depth for MVP: smoke only vs. a Sonobuoy/conformance subset.
 - Where the release-watcher gets "supported k8s versions" (upstream releases vs. an internal policy).
+
+## Phase 3 / backlog
+
+The MVP and Phase 2 are done: the unattended release watcher builds, validates, promotes and retires
+all five flavors across the supported minors, secretless. A full ground-zero reprovision-and-reconcile
+run passed end to end. The items below are deferred; none blocks running the current pipeline in
+production.
+
+### Productionization (to go live in the CNCF subscription)
+- **Cut over from dev to CNCF galleries/subscription.** Swap `hack/foundation.env` to the CNCF
+  subscription and community gallery. Reaper protection is already in place for that environment: the
+  foundation RG carries the `DO-NOT-DELETE=UpstreamInfra` tag, the builder cluster RG gets it via CAPZ
+  `additionalTags`, and the AKS node RG is protected with node resource group lockdown (a tag will not
+  stick there). The `pkr-*` build temp RGs are deliberately left reapable.
+- **Promote publisher metadata.** image-builder's community-gallery promote needs org vars
+  (`EULA_LINK`, `PUBLISHER_EMAIL`, `PUBLISHER_URI`, `SIG_PUBLISHER`); set these for the real publisher.
+
+### Deferred features
+- **Cost guardrails for the agent loop.** Deferred: ongoing cost is manageable as long as the
+  cluster-autoscaler scales the builder pool to zero when idle (only the small AKS management node runs
+  when fully idle). Revisit if the agent loop's Azure OpenAI spend becomes a concern.
+- **CVE-triggered rebuilds.** A high-priority base-image CVE feed that rebuilds affected flavors out of
+  band, not only on new Kubernetes patch releases.
+- **Deeper validation.** Beyond the current Ready + kubelet version + containerd + HostProcess/host
+  smoke pod, add a Sonobuoy or conformance subset.
+- **Multi-agent role split (A2A).** Separate build/validate/promote agents instead of the single
+  orchestrator, using kagent agent-to-agent RPC.
+- **Self-service triggers.** An on-demand "make 1.xx.y current" request path in addition to the daily
+  release-watcher CronJob.
+
+### Blocked upstream
+- **Azure Linux 4 (gen2, V2 image definitions).** Waiting on image-builder to ship an `azurelinux-4`
+  target; it replaces `azurelinux-3` and needs a hyper-v-generation V2 gallery definition.
+- **Remove the runtime jq sysprep patch** in `deploy/build-job.yaml` once an image-builder release
+  includes the merged Windows admin/password fix (PR #2117, not in v0.1.55).
+
+### Operational nice-to-haves
+- **`ttlSecondsAfterFinished` on build Jobs** so `Complete` build Jobs auto-clear on the builder
+  cluster instead of lingering.
+- **Re-triage the inaccurate "team/containerd" auto-classification label** on the source issue.

@@ -512,6 +512,24 @@ production.
 - **Self-service triggers.** An on-demand "make 1.xx.y current" request path in addition to the daily
   release-watcher CronJob.
 
+### Lean infrastructure (cost)
+- **Self-hosted CAPI (drop AKS): considered, rejected.** `clusterctl move` can pivot the CAPI objects
+  into the builder cluster so it self-manages, then AKS is deleted. It is a supported pattern, but the
+  savings are essentially nil: AKS gives a free managed control plane and one small always-on node,
+  while a self-managed CAPZ cluster still needs its own control-plane VM running 24/7, so you relocate
+  the always-on VM rather than remove it. Worse, dropping AKS loses its managed OIDC issuer and the
+  workload-identity webhook, which the whole secretless model depends on, so you would hand-build a
+  public OIDC issuer, install the azure-workload-identity webhook, and re-federate every credential. It
+  also breaks the "builder is disposable" property (today AKS holds the CAPI state so the builder is
+  freely recreatable and reaper-recoverable; self-hosted, a reaped builder has no manager left to
+  rebuild it), and co-locates the CPU-hungry agent on a lean control plane. Net: more fragility for
+  negligible savings.
+- **On-demand builder teardown: candidate.** The higher-value cost lever is the builder cluster's own
+  control plane, which currently stays up 24/7 but only does work during the daily reconcile. Tear the
+  whole builder cluster down after a reconcile and recreate it on demand (about 15 minutes) so only the
+  cheap AKS management node runs when fully idle. This keeps the secretless auth model untouched and
+  doubles as a nice agentic demo of the agent provisioning and deprovisioning its own build infra.
+
 ### Blocked upstream
 - **Azure Linux 4 (gen2, V2 image definitions).** Waiting on image-builder to ship an `azurelinux-4`
   target; it replaces `azurelinux-3` and needs a hyper-v-generation V2 gallery definition.

@@ -28,6 +28,17 @@ CAPACITY="${IMOGEN_OPENAI_CAPACITY:-200}"
 
 az account set --subscription "$SUBSCRIPTION_ID"
 
+# A resource-group teardown only soft-deletes a Cognitive Services account, and a
+# soft-deleted account blocks recreating one with the same name (the ARM deploy
+# fails FlagMustBeSetForRestore). Purge any soft-deleted namesake first so a
+# reprovision after teardown-foundation.sh succeeds without manual cleanup.
+if az cognitiveservices account list-deleted \
+  --query "[?name=='${ACCOUNT}'] | [0].id" -o tsv 2>/dev/null | grep -q .; then
+  echo "Purging soft-deleted Azure OpenAI account $ACCOUNT in $LOCATION"
+  az cognitiveservices account purge --name "$ACCOUNT" \
+    --resource-group "$RESOURCE_GROUP" --location "$LOCATION" -o none
+fi
+
 TEMPLATE="$(mktemp -t imogen-aoai-XXXX).json"
 cat >"$TEMPLATE" <<'JSON'
 {

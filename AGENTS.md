@@ -158,6 +158,21 @@ message, `level=approval` only surfaces the request, and a delivery failure is r
 (`delivered=false`) but never fatal. The release watcher's reconcile prompt ends every run with a
 `notify` summary and raises a `level=approval` notification when a human is needed.
 
+### Alerting without a webhook (Azure Monitor)
+
+When Slack and Teams are locked down (the CNCF production case), `notify`'s webhook has nowhere to
+POST, so it falls back to the log only. To still page a human, `hack/setup-alerts.sh` wires the audit
+log to an Azure Monitor alert instead. It enables Container Insights on the management cluster so the
+tool server's stderr audit lines land in a Log Analytics workspace (`ContainerLogV2`), then creates an
+Action Group (email, `IMOGEN_ALERT_EMAIL`) and a scheduled-query alert that fires when the agent
+raises a `level=approval` notification or any tool action logs `success":false`. Nothing leaves the
+pod: it just keeps logging, and Azure evaluates the query, so there is no outbound webhook and no
+stored secret, which fits the secretless model where `notify`'s webhook does not. Latency is the
+evaluation window (`IMOGEN_ALERT_FREQUENCY`, default 15m). notify and this alert are complementary,
+not exclusive: notify surfaces requests inline for interactive runs, the alert covers unattended runs
+where no channel is available. Action Groups can also deliver by SMS or Azure mobile push if email is
+not enough.
+
 ### Azure foundation
 
 `hack/setup-foundation.sh` creates the resource group, staging and community galleries, and the

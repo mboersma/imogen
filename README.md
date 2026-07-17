@@ -73,6 +73,11 @@ workload identity instead, so the Azure-backed tools run in cluster with no secr
 Kubernetes releases and drive any missing versions through the pipeline, pausing for human approval
 before it promotes.
 
+To be notified of approval requests and failures without a Slack or Teams webhook, run
+`hack/setup-alerts.sh` (set `IMOGEN_ALERT_EMAIL`). It enables Container Insights and creates an Azure
+Monitor alert on the tool server's audit log, so nothing leaves the pod and no webhook secret is
+stored.
+
 To stand up the CAPZ builder cluster, run `hack/setup-mgmt-cluster.sh` (AKS management cluster
 plus Cluster API) then `hack/setup-builder-cluster.sh` (the builder workload cluster). Scale the
 build pool with `hack/scale-builder.sh <count>` and tear it down with `hack/teardown-builder.sh`.

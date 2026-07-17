@@ -175,6 +175,14 @@ pipeline: `level=approval` only surfaces a request, and a delivery failure is re
 The reconcile prompt ends each watcher run with a `notify` summary and raises a `level=approval`
 notification when a human is needed.
 
+Alerting without a webhook (done). Where Slack and Teams are locked down (the CNCF production case),
+`notify`'s webhook has no destination, so `hack/setup-alerts.sh` wires the audit log to an Azure
+Monitor alert instead. It enables Container Insights so the tool server's stderr audit lines land in a
+Log Analytics workspace, then creates an email Action Group and a scheduled-query alert that fires on a
+`level=approval` notification or a failed tool action. Nothing leaves the pod and there is no stored
+secret, so it fits the secretless model where the webhook does not; notify and the alert are
+complementary. See the Alerting section in AGENTS.md.
+
 Image retirement is in place. `gc-eol-images` closes the lifecycle with a deliberately conservative
 policy: downstream projects (cloud-provider-azure, cluster-autoscaler) keep testing against
 out-of-support Kubernetes releases and pin specific patches, so the tool retires whole minors only,

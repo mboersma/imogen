@@ -2,6 +2,8 @@
 
 Tracking issue: `azure-management-and-platforms/cloud-native-oss#32`
 
+For architecture and sequence diagrams, see [architecture.md](architecture.md).
+
 ## Status
 
 Repo: https://github.com/mboersma/imogen (Go, Apache 2.0).

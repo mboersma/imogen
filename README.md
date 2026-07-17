@@ -31,6 +31,7 @@ A system to build, publish, and curate Kubernetes node "reference images" in Azu
 - `deploy/` — kagent manifests (Agent, ModelConfig, RemoteMCPServer, tool server)
 - `hack/` — operational scripts (Azure foundation, image build, Azure OpenAI, kagent)
 - `docs/plan.md` — design and MVP plan
+- `docs/architecture.md` — architecture and sequence diagrams
 - `docs/ai-stack.md` — overview of the AI and agentic technologies used
 
 ## Getting started
@@ -91,7 +92,8 @@ architecture and conventions.
 
 ## Design
 
-See [docs/plan.md](docs/plan.md) for the design and MVP plan, and
+See [docs/plan.md](docs/plan.md) for the design and MVP plan,
+[docs/architecture.md](docs/architecture.md) for architecture and sequence diagrams, and
 [docs/ai-stack.md](docs/ai-stack.md) for an overview of the AI and agentic
 technologies imogen uses.
 
